@@ -1,18 +1,14 @@
 'use strict';
 
-const ticketId = window.location.pathname.split('/').pop();
+const ticketId  = window.location.pathname.split('/').pop();
 let currentUser = null;
 let ticketData  = null;
+let activeTab   = 'messages';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
 function formatDate(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleString('de-AT', {
@@ -20,75 +16,96 @@ function formatDate(iso) {
     hour: '2-digit', minute: '2-digit',
   });
 }
-
 function avatarHtml(msg) {
-  const initials = (msg.username || '?').charAt(0).toUpperCase();
+  const init = (msg.username || '?').charAt(0).toUpperCase();
   if (msg.avatar_url) {
-    return `<img src="${escapeHtml(msg.avatar_url)}" alt="${escapeHtml(msg.username)}" onerror="this.style.display='none';this.parentNode.textContent='${initials}'" />`;
+    return `<img src="${escapeHtml(msg.avatar_url)}" class="msg-avatar-img"
+              onerror="this.parentNode.textContent='${init}'" alt="" />`;
   }
-  return initials;
+  return init;
 }
 
-// ── Load user info ────────────────────────────────────────────────────────────
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTicketTab(tab) {
+  activeTab = tab;
+  ['messages','transcript','notes'].forEach(t => {
+    document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
+    document.getElementById(`tab-${t}`)?.classList.toggle('active',  t === tab);
+  });
+  if (tab === 'notes' && ticketData) loadNotes();
+}
+
+// ── Load user ─────────────────────────────────────────────────────────────────
 async function loadUser() {
   const res = await fetch('/api/me');
   if (!res.ok) { window.location.href = '/'; return; }
   currentUser = await res.json();
-
   document.getElementById('userInfo').innerHTML = `
-    <img src="${currentUser.avatar}" class="user-avatar" alt="${currentUser.username}" />
-    <span class="fw-semibold">${escapeHtml(currentUser.username)}</span>
+    <img src="${currentUser.avatar}" class="user-avatar" alt="${escapeHtml(currentUser.username)}" />
+    <span class="fw-semibold d-none d-md-inline">${escapeHtml(currentUser.username)}</span>
   `;
 }
 
 // ── Render ticket header ──────────────────────────────────────────────────────
-function renderHeader(ticket) {
-  document.title = `Ticket #${String(ticket.ticket_number).padStart(4, '0')} – Ticket-System`;
-
+function renderHeader(ticket, isStaff) {
+  document.title = `Ticket #${String(ticket.ticket_number).padStart(4,'0')} – Ticket-System`;
   document.getElementById('ticketTitle').textContent =
-    `Ticket #${String(ticket.ticket_number).padStart(4, '0')} – ${ticket.subject || '(kein Betreff)'}`;
+    `Ticket #${String(ticket.ticket_number).padStart(4,'0')} – ${ticket.subject || '(kein Betreff)'}`;
 
-  const statusCls   = ticket.status === 'open' ? 'badge-open' : 'badge-closed';
-  const statusLabel = ticket.status === 'open' ? 'Offen' : 'Geschlossen';
-  const statusIcon  = ticket.status === 'open' ? 'bi-circle-fill' : 'bi-lock-fill';
+  const sCls   = ticket.status === 'open' ? 'badge-open'    : 'badge-closed';
+  const sLabel = ticket.status === 'open' ? 'Offen'         : 'Geschlossen';
+  const sIcon  = ticket.status === 'open' ? 'bi-circle-fill': 'bi-lock-fill';
 
   document.getElementById('ticketMeta').innerHTML = `
     <span class="meta-pill"><i class="bi bi-person-fill"></i>${escapeHtml(ticket.username)}</span>
     <span class="meta-pill"><i class="bi bi-tag-fill"></i>${escapeHtml(ticket.category)}</span>
     <span class="meta-pill"><i class="bi bi-clock-fill"></i>${formatDate(ticket.created_at)}</span>
     ${ticket.closed_at ? `<span class="meta-pill"><i class="bi bi-lock-fill"></i>Geschlossen: ${formatDate(ticket.closed_at)}</span>` : ''}
-    <span class="ticket-badge ${statusCls} ms-1">
-      <i class="bi ${statusIcon} me-1" style="font-size:.6rem"></i>${statusLabel}
+    <span class="ticket-badge ${sCls} ms-1">
+      <i class="bi ${sIcon} me-1" style="font-size:.6rem"></i>${sLabel}
     </span>
   `;
 
-  // Show close button if open & user is owner or staff
-  if (ticket.status === 'open') {
-    const canClose = currentUser.isStaff || currentUser.id === ticket.user_id;
-    if (canClose) document.getElementById('closeBtn').classList.remove('d-none');
-  } else {
+  // Transcript button always visible
+  const tBtn = document.getElementById('transcriptBtn');
+  tBtn.href = `/api/tickets/${ticketId}/transcript`;
+  tBtn.classList.remove('d-none');
+
+  // Transcript tab links
+  const openBtn = document.getElementById('transcriptOpenBtn');
+  const dlBtn   = document.getElementById('transcriptDownloadBtn');
+  if (openBtn) openBtn.href = `/api/tickets/${ticketId}/transcript`;
+  if (dlBtn)   { dlBtn.href = `/api/tickets/${ticketId}/transcript`; dlBtn.download = `transcript-${ticketId}.html`; }
+
+  // Close button
+  if (ticket.status === 'open' && (isStaff || currentUser.id === ticket.user_id)) {
+    document.getElementById('closeBtn').classList.remove('d-none');
+  }
+
+  // Closed notice
+  if (ticket.status === 'closed') {
     document.getElementById('closedNotice').classList.remove('d-none');
+  }
+
+  // Staff notes tab
+  if (isStaff) {
+    document.getElementById('tab-notes').classList.remove('d-none');
   }
 }
 
 // ── Render messages ───────────────────────────────────────────────────────────
 function renderMessages(messages) {
   const container = document.getElementById('messagesContainer');
-
   if (!messages.length) {
     container.innerHTML = '<p class="text-center text-muted py-4">Noch keine Nachrichten.</p>';
     return;
   }
-
   container.innerHTML = messages.map(m => {
     const isMe = currentUser && m.user_id === currentUser.id;
-    const attachHtml = JSON.parse(m.attachments || '[]')
-      .map(a => `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener noreferrer"
-                    class="d-inline-block mt-1 me-1 text-accent small">
-                   <i class="bi bi-paperclip me-1"></i>${escapeHtml(a.name)}
-                 </a>`)
+    const attHtml = JSON.parse(typeof m.attachments === 'string' ? m.attachments : JSON.stringify(m.attachments || []))
+      .map(a => `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="d-inline-block mt-1 me-1 text-accent small">
+                   <i class="bi bi-paperclip me-1"></i>${escapeHtml(a.name)}</a>`)
       .join('');
-
     return `
       <div class="message-group">
         <div class="msg-avatar">${avatarHtml(m)}</div>
@@ -97,55 +114,92 @@ function renderMessages(messages) {
             <span class="msg-author">${escapeHtml(m.username)}</span>
             <span class="msg-time">${formatDate(m.created_at)}</span>
           </div>
-          ${m.content ? `<div class="msg-content ${isMe ? 'me' : ''}">${escapeHtml(m.content)}</div>` : ''}
-          ${attachHtml}
+          ${m.content ? `<div class="msg-content ${isMe?'me':''}">${escapeHtml(m.content)}</div>` : ''}
+          ${attHtml}
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
-
   container.scrollTop = container.scrollHeight;
+}
+
+// ── Load & render notes ───────────────────────────────────────────────────────
+async function loadNotes() {
+  const list = document.getElementById('notesList');
+  list.innerHTML = '<p class="text-muted small">Lade Notizen…</p>';
+  try {
+    const notes = await fetch(`/api/tickets/${ticketId}/notes`).then(r => r.json());
+    if (!notes.length) { list.innerHTML = '<p class="text-muted small">Noch keine Notizen.</p>'; return; }
+    list.innerHTML = notes.map(n => `
+      <div class="note-card">
+        <div class="d-flex justify-content-between">
+          <span class="note-author"><i class="bi bi-sticky-fill me-1"></i>${escapeHtml(n.username)}</span>
+          <span class="note-time">${formatDate(n.created_at)}</span>
+        </div>
+        <div class="note-body">${escapeHtml(n.content)}</div>
+      </div>`).join('');
+  } catch {
+    list.innerHTML = '<p class="text-danger small">Fehler beim Laden.</p>';
+  }
+}
+
+async function addNote() {
+  const input = document.getElementById('noteInput');
+  const alert = document.getElementById('noteAlert');
+  const content = input.value.trim();
+  if (!content) return;
+
+  alert.textContent = 'Speichern…';
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}/notes`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ content }),
+    });
+    if (res.ok) {
+      input.value       = '';
+      alert.textContent = '✓ Gespeichert';
+      setTimeout(() => { alert.textContent = ''; }, 2000);
+      loadNotes();
+    } else {
+      const err = await res.json();
+      alert.textContent = err.error || 'Fehler';
+    }
+  } catch { alert.textContent = 'Netzwerkfehler'; }
 }
 
 // ── Close ticket ──────────────────────────────────────────────────────────────
 async function closeTicket() {
   if (!confirm('Ticket wirklich schließen?')) return;
-
   const btn = document.getElementById('closeBtn');
   btn.disabled    = true;
   btn.textContent = 'Schließe…';
-
   try {
     const res = await fetch(`/api/tickets/${ticketId}/close`, { method: 'POST' });
-    if (res.ok) {
-      window.location.reload();
-    } else {
+    if (res.ok) { window.location.reload(); }
+    else {
       const err = await res.json();
       alert(`Fehler: ${err.error}`);
-      btn.disabled    = false;
-      btn.textContent = 'Ticket schließen';
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="bi bi-lock-fill me-1"></i>Ticket schließen';
     }
   } catch {
     alert('Netzwerkfehler');
-    btn.disabled    = false;
-    btn.textContent = 'Ticket schließen';
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="bi bi-lock-fill me-1"></i>Ticket schließen';
   }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   await loadUser();
-
   const res = await fetch(`/api/tickets/${ticketId}`);
   if (!res.ok) {
     document.getElementById('messagesContainer').innerHTML =
       '<div class="alert alert-danger">Ticket nicht gefunden oder kein Zugriff.</div>';
     return;
   }
-
   const data = await res.json();
   ticketData = data.ticket;
-
-  renderHeader(ticketData);
+  renderHeader(data.ticket, data.isStaff);
   renderMessages(data.messages);
 })();

@@ -13,7 +13,7 @@
   <!-- Navbar -->
   <nav class="navbar navbar-dark bg-dark-custom px-4 sticky-top">
     <a class="navbar-brand fw-bold" href="/dashboard">
-      <i class="bi bi-arrow-left me-2"></i>Zurück zum Dashboard
+      <i class="bi bi-arrow-left me-2"></i>Zurück
     </a>
     <div class="d-flex align-items-center gap-2">
       <div id="userInfo"></div>
@@ -23,38 +23,89 @@
     </div>
   </nav>
 
-  <div class="container py-4" style="max-width:860px">
+  <div class="container py-4" style="max-width:900px">
 
     <!-- Ticket header -->
-    <div id="ticketHeader" class="card bg-dark-card border-0 shadow-sm mb-4">
+    <div id="ticketHeader" class="card bg-dark-card border-0 shadow-sm mb-3">
       <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
           <div>
             <h5 id="ticketTitle" class="mb-1 fw-bold">Lade…</h5>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-2" id="ticketMeta"></div>
           </div>
-          <button id="closeBtn" class="btn btn-danger btn-sm d-none" onclick="closeTicket()">
-            <i class="bi bi-lock-fill me-1"></i>Ticket schließen
-          </button>
+          <div class="d-flex gap-2">
+            <a id="transcriptBtn" href="#" target="_blank" rel="noopener"
+               class="btn btn-outline-secondary btn-sm d-none">
+              <i class="bi bi-file-earmark-text me-1"></i>Transkript
+            </a>
+            <button id="closeBtn" class="btn btn-danger btn-sm d-none" onclick="closeTicket()">
+              <i class="bi bi-lock-fill me-1"></i>Ticket schließen
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Messages -->
-    <div id="messagesContainer" class="mb-4">
-      <div class="text-center text-muted py-5">
-        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-        Lade Nachrichten…
+    <!-- Tab navigation -->
+    <div class="tab-bar mb-3" id="ticketTabs">
+      <button class="tab-btn active" onclick="switchTicketTab('messages')" id="tab-messages">
+        <i class="bi bi-chat-dots-fill me-1"></i>Nachrichten
+      </button>
+      <button class="tab-btn" onclick="switchTicketTab('transcript')" id="tab-transcript">
+        <i class="bi bi-file-earmark-text-fill me-1"></i>Transkript
+      </button>
+      <button class="tab-btn d-none" onclick="switchTicketTab('notes')" id="tab-notes">
+        <i class="bi bi-sticky-fill me-1"></i>Staff-Notizen
+      </button>
+    </div>
+
+    <!-- Messages tab -->
+    <div id="pane-messages">
+      <div id="messagesContainer" class="mb-3">
+        <div class="text-center text-muted py-5">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Lade Nachrichten…
+        </div>
+      </div>
+      <div id="closedNotice" class="alert alert-secondary small d-none">
+        <i class="bi bi-lock-fill me-2"></i>Dieses Ticket ist geschlossen.
       </div>
     </div>
 
-    <!-- Closed notice -->
-    <div id="closedNotice" class="alert alert-secondary d-none">
-      <i class="bi bi-lock-fill me-2"></i>
-      Dieses Ticket ist geschlossen. Nachrichten können nicht mehr gesendet werden.
+    <!-- Transcript tab -->
+    <div id="pane-transcript" class="d-none">
+      <div class="card bg-dark-card border-0">
+        <div class="card-body text-center py-5">
+          <i class="bi bi-file-earmark-text-fill fs-1 text-muted mb-3 d-block"></i>
+          <p class="text-muted mb-3">Das Transkript enthält alle gespeicherten Nachrichten dieses Tickets.</p>
+          <a id="transcriptOpenBtn" href="#" target="_blank" rel="noopener" class="btn btn-primary">
+            <i class="bi bi-box-arrow-up-right me-2"></i>Transkript öffnen
+          </a>
+          <a id="transcriptDownloadBtn" href="#" download class="btn btn-outline-secondary ms-2">
+            <i class="bi bi-download me-1"></i>Download
+          </a>
+        </div>
+      </div>
     </div>
+
+    <!-- Notes tab (staff only) -->
+    <div id="pane-notes" class="d-none">
+      <div id="notesList" class="mb-3"></div>
+      <div class="card bg-dark-card border-0">
+        <div class="card-body">
+          <label class="form-label text-muted small fw-semibold">Neue Notiz hinzufügen</label>
+          <textarea id="noteInput" class="form-control mb-2" rows="3"
+                    placeholder="Interne Notiz (nur für Staff sichtbar)…" maxlength="2000"></textarea>
+          <button class="btn btn-sm btn-warning" onclick="addNote()">
+            <i class="bi bi-sticky-fill me-1"></i>Notiz speichern
+          </button>
+          <span id="noteAlert" class="ms-2 small text-muted"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/ticket.js"></script>
 </body>
 </html>

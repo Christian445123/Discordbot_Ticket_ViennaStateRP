@@ -55,6 +55,16 @@ db.exec(`
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS ticket_notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id  INTEGER NOT NULL,
+    user_id    TEXT    NOT NULL,
+    username   TEXT    NOT NULL,
+    content    TEXT    NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+  );
 `);
 
 // ── Guild helpers ─────────────────────────────────────────────────────────────
@@ -102,6 +112,10 @@ const addMessage  = db.prepare(`
 `);
 const getMessages = db.prepare('SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC');
 
+// ── Note helpers ──────────────────────────────────────────────────────────────
+const addNote  = db.prepare('INSERT INTO ticket_notes (ticket_id, user_id, username, content) VALUES (?, ?, ?, ?)');
+const getNotes = db.prepare('SELECT * FROM ticket_notes WHERE ticket_id = ? ORDER BY created_at ASC');
+
 module.exports = {
   db,
   getGuild,
@@ -120,4 +134,6 @@ module.exports = {
   getStats,
   addMessage,
   getMessages,
+  addNote,
+  getNotes,
 };

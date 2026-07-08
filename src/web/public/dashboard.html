@@ -26,7 +26,7 @@
   <div class="container-fluid py-4 px-4">
 
     <!-- Stats -->
-    <div class="row g-3 mb-4" id="statsRow">
+    <div class="row g-3 mb-4">
       <div class="col-md-4">
         <div class="stat-card">
           <div class="stat-label">Gesamt</div>
@@ -47,17 +47,30 @@
       </div>
     </div>
 
+    <!-- Tab bar + Create button -->
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+      <div class="tab-bar" id="tabBar">
+        <button class="tab-btn active" onclick="switchTab('mine')" id="tab-mine">
+          <i class="bi bi-person-fill me-1"></i>Meine Tickets
+        </button>
+        <button class="tab-btn d-none" onclick="switchTab('all')" id="tab-all">
+          <i class="bi bi-grid-fill me-1"></i>Alle Tickets
+        </button>
+      </div>
+      <button class="btn btn-primary btn-sm px-3" data-bs-toggle="modal" data-bs-target="#createModal">
+        <i class="bi bi-plus-lg me-1"></i>Ticket erstellen
+      </button>
+    </div>
+
     <!-- Filters -->
     <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
       <input type="text" id="searchInput" class="form-control form-control-sm search-input"
              placeholder="Suche nach Betreff, Benutzer…" style="max-width:280px" />
-
       <select id="statusFilter" class="form-select form-select-sm" style="max-width:150px">
         <option value="">Alle Status</option>
         <option value="open">Offen</option>
         <option value="closed">Geschlossen</option>
       </select>
-
       <select id="categoryFilter" class="form-select form-select-sm" style="max-width:170px">
         <option value="">Alle Kategorien</option>
         <option>Support</option>
@@ -66,8 +79,7 @@
         <option>Beschwerde</option>
         <option>Allgemein</option>
       </select>
-
-      <button class="btn btn-sm btn-primary ms-auto" onclick="loadTickets()">
+      <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadTickets()">
         <i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren
       </button>
     </div>
@@ -82,7 +94,7 @@
                 <th>#</th>
                 <th>Betreff</th>
                 <th>Kategorie</th>
-                <th>Benutzer</th>
+                <th id="colUser">Benutzer</th>
                 <th>Status</th>
                 <th>Erstellt</th>
                 <th></th>
@@ -91,8 +103,7 @@
             <tbody id="ticketTableBody">
               <tr>
                 <td colspan="7" class="text-center text-muted py-4">
-                  <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                  Lade Tickets…
+                  <div class="spinner-border spinner-border-sm me-2" role="status"></div>Lade Tickets…
                 </td>
               </tr>
             </tbody>
@@ -100,10 +111,51 @@
         </div>
       </div>
     </div>
-
     <p id="emptyHint" class="text-center text-muted mt-3 d-none">Keine Tickets gefunden.</p>
   </div>
 
+  <!-- Create Ticket Modal -->
+  <div class="modal fade" id="createModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content bg-dark-card border-0">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title"><i class="bi bi-plus-circle-fill text-primary me-2"></i>Neues Ticket erstellen</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="createAlert" class="alert d-none mb-3"></div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Kategorie <span class="text-danger">*</span></label>
+            <select id="createCategory" class="form-select">
+              <option value="">— Bitte wählen —</option>
+              <option value="Support">🛠️ Support</option>
+              <option value="Bug-Report">🐛 Bug-Report</option>
+              <option value="Bewerbung">📋 Bewerbung</option>
+              <option value="Beschwerde">⚠️ Beschwerde</option>
+              <option value="Allgemein">💬 Allgemein</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Betreff <span class="text-danger">*</span></label>
+            <input type="text" id="createSubject" class="form-control" placeholder="Kurze Beschreibung deines Anliegens" maxlength="100" />
+          </div>
+          <div class="mb-1">
+            <label class="form-label text-muted small">Beschreibung <span class="text-muted">(optional)</span></label>
+            <textarea id="createDescription" class="form-control" rows="4"
+                      placeholder="Beschreibe dein Anliegen so genau wie möglich…" maxlength="1000"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="button" class="btn btn-primary btn-sm px-4" id="createSubmitBtn" onclick="submitCreateTicket()">
+            <i class="bi bi-send-fill me-1"></i>Ticket erstellen
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/dashboard.js"></script>
 </body>
 </html>
