@@ -108,6 +108,7 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
 │   ├── bot/
 │   │   ├── bot.js              # Discord-Client mit Command/Event-Loader
 │   │   ├── deploy-commands.js  # Slash-Command Registrierung
+│   │   ├── ticketLog.js        # Zentrales Logging in den Log-Kanal (erstellt/geschlossen/Notiz)
 │   │   ├── commands/
 │   │   │   ├── setup.js        # /setup – System einrichten
 │   │   │   └── close.js        # /close – Ticket schließen
@@ -115,6 +116,8 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
 │   │       ├── ready.js
 │   │       ├── interactionCreate.js  # Buttons, Modals, Slash-Commands
 │   │       └── messageCreate.js      # Nachrichten für Transkript loggen
+│   ├── utils/
+│   │   └── logger.js           # Konsolen-Logger mit Zeitstempel & Log-Level
 │   └── web/
 │       ├── server.js           # Express-Server Setup
 │       ├── routes/

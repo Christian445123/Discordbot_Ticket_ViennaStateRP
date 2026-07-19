@@ -12,7 +12,9 @@ const {
   PermissionFlagsBits,
   ChannelType,
 } = require('discord.js');
-const db = require('../../database/db');
+const db        = require('../../database/db');
+const ticketLog = require('../ticketLog');
+const logger    = require('../../utils/logger');
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
@@ -35,36 +37,11 @@ async function closeTicket(interaction, ticket) {
   await interaction.channel.send({ embeds: [closeEmbed] });
 
   // Log to log channel
-  const guildCfg = db.getGuild.get(guild.id);
-  if (guildCfg?.log_channel_id) {
-    const logCh = guild.channels.cache.get(guildCfg.log_channel_id);
-    if (logCh) {
-      const messages = db.getMessages.all(ticket.id);
-      const transcript = messages
-        .map(m => `[${m.created_at}] ${m.username}: ${m.content}`)
-        .join('\n') || '(keine Nachrichten)';
-
-      const logEmbed = new EmbedBuilder()
-        .setTitle('📋 Ticket geschlossen')
-        .setColor(0xED4245)
-        .addFields(
-          { name: 'Ticket-Nr.',  value: `#${String(ticket.ticket_number).padStart(4, '0')}`, inline: true },
-          { name: 'Erstellt von', value: `<@${ticket.user_id}>`,                             inline: true },
-          { name: 'Geschlossen von', value: `${closedBy.tag}`,                               inline: true },
-          { name: 'Nachrichten', value: `${messages.length}`,                                inline: true },
-        )
-        .setTimestamp();
-
-      const transcriptBuf = Buffer.from(transcript, 'utf-8');
-      await logCh.send({
-        embeds: [logEmbed],
-        files: [{
-          attachment: transcriptBuf,
-          name: `transcript-${ticket.id}.txt`,
-        }],
-      });
-    }
-  }
+  await ticketLog.logTicketClosed(interaction.client, guild.id, {
+    ticket,
+    closedByTag: closedBy.tag,
+    source: '🎮 Discord',
+  });
 
   // Lock channel, then delete after 5 seconds
   try {
@@ -162,21 +139,12 @@ async function createTicketChannel(interaction, category, subject) {
   });
 
   // Log channel
-  if (guildCfg?.log_channel_id) {
-    const logCh = guild.channels.cache.get(guildCfg.log_channel_id);
-    if (logCh) {
-      const logEmbed = new EmbedBuilder()
-        .setTitle('📋 Ticket erstellt')
-        .setColor(0x57F287)
-        .addFields(
-          { name: 'Ticket',       value: `${channel}`,     inline: true },
-          { name: 'Benutzer',     value: user.tag,          inline: true },
-          { name: 'Kategorie',    value: category,           inline: true },
-        )
-        .setTimestamp();
-      logCh.send({ embeds: [logEmbed] }).catch(() => {});
-    }
-  }
+  await ticketLog.logTicketCreated(interaction.client, guild.id, {
+    channel,
+    username: user.tag,
+    category,
+    source: '🎮 Discord',
+  });
 
   await interaction.reply({
     content: `✅ Dein Ticket wurde erstellt: ${channel}`,
@@ -197,7 +165,7 @@ module.exports = {
       try {
         await command.execute(interaction);
       } catch (err) {
-        console.error(err);
+        logger.error(`Command "${interaction.commandName}" fehlgeschlagen:`, err);
         const msg = { content: '❌ Fehler beim Ausführen des Befehls.', ephemeral: true };
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp(msg);

@@ -1,7 +1,9 @@
 'use strict';
 
-const express = require('express');
-const db      = require('../../database/db');
+const express   = require('express');
+const db        = require('../../database/db');
+const ticketLog = require('../../bot/ticketLog');
+const logger    = require('../../utils/logger');
 
 function requireAuth(req, res, next) {
   if (req.isAuthenticated()) return next();
@@ -215,16 +217,11 @@ module.exports = function apiRoutes(discordClient) {
           )],
         });
 
-        if (guildCfg?.log_channel_id) {
-          const logCh = guild.channels.cache.get(guildCfg.log_channel_id);
-          if (logCh) {
-            logCh.send({ embeds: [new EmbedBuilder().setTitle('📋 Ticket erstellt (Web)').setColor(0x57F287)
-              .addFields({ name: 'Ticket', value: `${channel}`, inline: true }, { name: 'Benutzer', value: username, inline: true }, { name: 'Kategorie', value: category, inline: true })
-              .setTimestamp()] }).catch(() => {});
-          }
-        }
+        await ticketLog.logTicketCreated(discordClient, guildId, {
+          channel, username, category, source: '🌐 Web',
+        });
       } catch (err) {
-        console.error('Discord channel creation error:', err.message);
+        logger.error('Discord channel creation error:', err.message);
       }
     }
     res.json({ success: true, ticketId });
@@ -243,7 +240,12 @@ module.exports = function apiRoutes(discordClient) {
     const isStaff = await checkStaff(discordClient, guildId, userId);
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
 
-    db.closeTicket.run({ id: ticketId, closed_by_id: userId, closed_by_name: `${req.user.username} (Web)` });
+    const closedByTag = `${req.user.username} (Web)`;
+    db.closeTicket.run({ id: ticketId, closed_by_id: userId, closed_by_name: closedByTag });
+
+    await ticketLog.logTicketClosed(discordClient, guildId, {
+      ticket, closedByTag, source: '🌐 Web',
+    });
 
     if (ticket.channel_id) {
       try {
@@ -296,6 +298,8 @@ module.exports = function apiRoutes(discordClient) {
   router.post('/tickets/:id/notes', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+    const ticket = db.getTicketById.get(ticketId);
+    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
 
@@ -303,7 +307,13 @@ module.exports = function apiRoutes(discordClient) {
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann Notizen hinzufügen' });
 
-    db.addNote.run(ticketId, req.user.id, req.user.username, content.trim());
+    const noteContent = content.trim();
+    db.addNote.run(ticketId, req.user.id, req.user.username, noteContent);
+
+    await ticketLog.logNoteAdded(discordClient, guildId, {
+      ticket, authorTag: req.user.username, content: noteContent,
+    });
+
     res.json({ success: true });
   });
 

@@ -2,8 +2,9 @@
 
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const logger = require('../utils/logger');
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
@@ -17,15 +18,15 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log(`Registriere ${commands.length} Slash-Commands...`);
+    logger.info(`Registriere ${commands.length} Slash-Commands...`);
 
     await rest.put(
       Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, process.env.DISCORD_GUILD_ID),
       { body: commands },
     );
 
-    console.log('Slash-Commands erfolgreich registriert!');
+    logger.info('Slash-Commands erfolgreich registriert!');
   } catch (err) {
-    console.error(err);
+    logger.error('Slash-Command-Registrierung fehlgeschlagen:', err);
   }
 })();

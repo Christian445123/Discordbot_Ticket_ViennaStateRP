@@ -2,8 +2,9 @@
 
 require('dotenv').config();
 
-const client             = require('./src/bot/bot');
-const { createWebServer } = require('./src/web/server');
+const client              = require('./src/bot/bot');
+const { createWebServer }  = require('./src/web/server');
+const logger               = require('./src/utils/logger');
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -12,15 +13,19 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const app = createWebServer(client);
 
 app.listen(PORT, () => {
-  console.log(`🌐 Web-Interface läuft auf http://localhost:${PORT}`);
+  logger.info(`🌐 Web-Interface läuft auf http://localhost:${PORT}`);
 });
 
 // ── Start Discord bot ────────────────────────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN).catch(err => {
-  console.error('❌ Bot-Login fehlgeschlagen:', err.message);
+  logger.error('❌ Bot-Login fehlgeschlagen:', err.message);
   process.exit(1);
 });
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 process.on('SIGINT',  () => { client.destroy(); process.exit(0); });
 process.on('SIGTERM', () => { client.destroy(); process.exit(0); });
+
+// ── Safety net for unlogged crashes ─────────────────────────────────────────
+process.on('unhandledRejection', err => logger.error('Unhandled Rejection:', err));
+process.on('uncaughtException',  err => logger.error('Uncaught Exception:', err));
