@@ -1,6 +1,7 @@
 'use strict';
 
 const ticketId  = window.location.pathname.split('/').pop();
+let categories  = []; // loaded from /api/categories
 let currentUser = null;
 let ticketData  = null;
 let activeTab   = 'messages';
@@ -87,6 +88,16 @@ function renderHeader(ticket, isStaff) {
   document.getElementById('closeBtn').classList.toggle('d-none', !(isOpen && canManage));
   document.getElementById('composerWrap').classList.toggle('d-none', !(isOpen && canManage));
   document.getElementById('closedNotice').classList.toggle('d-none', isOpen);
+
+  // Category select — Staff only, editable while the ticket is open
+  const catSelect = document.getElementById('categorySelect');
+  catSelect.classList.toggle('d-none', !isStaff);
+  if (isStaff) {
+    catSelect.innerHTML = categories.map(c =>
+      `<option value="${escapeHtml(c.name)}" ${c.name === ticket.category ? 'selected' : ''}>${c.emoji ? `${c.emoji} ` : ''}${escapeHtml(c.name)}</option>`
+    ).join('');
+    catSelect.disabled = !isOpen;
+  }
 
   // Staff notes tab
   if (isStaff) {
@@ -175,11 +186,37 @@ async function refreshTicket() {
     const res = await fetch(`/api/tickets/${ticketId}`);
     if (!res.ok) return;
     const data = await res.json();
-    const statusChanged = ticketData?.status !== data.ticket.status;
+    const headerChanged = ticketData?.status !== data.ticket.status
+      || ticketData?.category !== data.ticket.category;
     ticketData = data.ticket;
-    if (statusChanged) renderHeader(data.ticket, data.isStaff);
-    if (statusChanged || data.messages.length !== lastMessageCount) renderMessages(data.messages);
+    if (headerChanged) renderHeader(data.ticket, data.isStaff);
+    if (headerChanged || data.messages.length !== lastMessageCount) renderMessages(data.messages);
   } catch { /* ignore transient network errors while polling */ }
+}
+
+async function changeCategory(newCategory) {
+  const select = document.getElementById('categorySelect');
+  const previous = ticketData?.category;
+  select.disabled = true;
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}/category`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ category: newCategory }),
+    });
+    if (res.ok) {
+      await refreshTicket();
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Fehler beim Ändern der Kategorie.');
+      select.value = previous;
+    }
+  } catch {
+    alert('Netzwerkfehler.');
+    select.value = previous;
+  } finally {
+    select.disabled = ticketData?.status !== 'open';
+  }
 }
 
 function autoResizeComposer() {
@@ -269,6 +306,7 @@ composerInput?.addEventListener('input', autoResizeComposer);
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   await loadUser();
+  try { categories = await fetch('/api/categories').then(r => r.json()); } catch { categories = []; }
   const res = await fetch(`/api/tickets/${ticketId}`);
   if (!res.ok) {
     document.getElementById('messagesContainer').innerHTML =

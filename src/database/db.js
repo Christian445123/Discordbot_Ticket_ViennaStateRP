@@ -28,6 +28,21 @@ db.exec(`
     ticket_count      INTEGER DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS categories (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id              TEXT    NOT NULL,
+    name                  TEXT    NOT NULL,
+    emoji                 TEXT    DEFAULT '🎫',
+    description           TEXT    DEFAULT '',
+    ping_type             TEXT,              -- 'role' | 'user' | NULL
+    ping_target_id        TEXT,
+    auto_message          TEXT,
+    auto_message_channel  INTEGER DEFAULT 1,
+    auto_message_dm       INTEGER DEFAULT 0,
+    sort_order            INTEGER DEFAULT 0,
+    UNIQUE(guild_id, name)
+  );
+
   CREATE TABLE IF NOT EXISTS tickets (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     ticket_number  INTEGER NOT NULL,
@@ -67,6 +82,17 @@ db.exec(`
   );
 `);
 
+// Lightweight migration: add columns that didn't exist in earlier versions of
+// this table, so upgrading doesn't require dropping the DB.
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn('guilds', 'panel_image_url',  'TEXT');
+ensureColumn('guilds', 'panel_description', 'TEXT');
+
 // ── Guild helpers ─────────────────────────────────────────────────────────────
 const getGuild              = db.prepare('SELECT * FROM guilds WHERE guild_id = ?');
 const ensureGuild           = db.prepare('INSERT OR IGNORE INTO guilds (guild_id) VALUES (?)');
@@ -76,6 +102,50 @@ const getTicketCount        = db.prepare('SELECT ticket_count FROM guilds WHERE 
 function updateGuild(guildId, data) {
   const fields = Object.keys(data).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE guilds SET ${fields} WHERE guild_id = @guild_id`).run({ ...data, guild_id: guildId });
+}
+
+// ── Category helpers ──────────────────────────────────────────────────────────
+const DEFAULT_CATEGORIES = [
+  { name: 'Support',     emoji: '🛠️' },
+  { name: 'Bug-Report',  emoji: '🐛' },
+  { name: 'Bewerbung',   emoji: '📋' },
+  { name: 'Beschwerde',  emoji: '⚠️' },
+  { name: 'Allgemein',   emoji: '💬' },
+];
+
+const getCategories     = db.prepare('SELECT * FROM categories WHERE guild_id = ? ORDER BY sort_order ASC, id ASC');
+const getCategoryByName = db.prepare('SELECT * FROM categories WHERE guild_id = ? AND name = ?');
+const getCategoryCount  = db.prepare('SELECT COUNT(*) AS count FROM categories WHERE guild_id = ?');
+const deleteCategory    = db.prepare('DELETE FROM categories WHERE guild_id = ? AND name = ?');
+const insertCategory    = db.prepare(`
+  INSERT INTO categories
+    (guild_id, name, emoji, description, ping_type, ping_target_id, auto_message, auto_message_channel, auto_message_dm, sort_order)
+  VALUES
+    (@guild_id, @name, @emoji, @description, @ping_type, @ping_target_id, @auto_message, @auto_message_channel, @auto_message_dm, @sort_order)
+`);
+
+function updateCategory(guildId, name, data) {
+  const fields = Object.keys(data).map(k => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE categories SET ${fields} WHERE guild_id = @guild_id AND name = @name`)
+    .run({ ...data, guild_id: guildId, name });
+}
+
+function seedDefaultCategories(guildId) {
+  const { count } = getCategoryCount.get(guildId);
+  if (count > 0) return;
+  DEFAULT_CATEGORIES.forEach((c, i) => insertCategory.run({
+    guild_id: guildId, name: c.name, emoji: c.emoji, description: '',
+    ping_type: null, ping_target_id: null, auto_message: null,
+    auto_message_channel: 1, auto_message_dm: 0, sort_order: i,
+  }));
+}
+
+// Ensures a guild row exists AND has at least the default categories seeded —
+// the single entry point every command/route should call instead of ensureGuild
+// directly, so a brand-new guild always starts with a working category list.
+function ensureGuildWithDefaults(guildId) {
+  ensureGuild.run(guildId);
+  seedDefaultCategories(guildId);
 }
 
 // ── Ticket helpers ────────────────────────────────────────────────────────────
@@ -89,7 +159,8 @@ const getTicketByChannel  = db.prepare('SELECT * FROM tickets WHERE channel_id =
 const getTicketsByGuild   = db.prepare('SELECT * FROM tickets WHERE guild_id = ? ORDER BY created_at DESC');
 const getTicketsByUser    = db.prepare('SELECT * FROM tickets WHERE guild_id = ? AND user_id = ? ORDER BY created_at DESC');
 const getOpenTicketByUser = db.prepare('SELECT * FROM tickets WHERE guild_id = ? AND user_id = ? AND status = \'open\' LIMIT 1');
-const updateTicketChannel = db.prepare('UPDATE tickets SET channel_id = ? WHERE id = ?');
+const updateTicketChannel  = db.prepare('UPDATE tickets SET channel_id = ? WHERE id = ?');
+const updateTicketCategory = db.prepare('UPDATE tickets SET category = ? WHERE id = ?');
 
 const closeTicket = db.prepare(`
   UPDATE tickets
@@ -120,9 +191,16 @@ module.exports = {
   db,
   getGuild,
   ensureGuild,
+  ensureGuildWithDefaults,
   incrementTicketCount,
   getTicketCount,
   updateGuild,
+  getCategories,
+  getCategoryByName,
+  getCategoryCount,
+  insertCategory,
+  updateCategory,
+  deleteCategory,
   createTicket,
   getTicketById,
   getTicketByChannel,
@@ -130,6 +208,7 @@ module.exports = {
   getTicketsByUser,
   getOpenTicketByUser,
   updateTicketChannel,
+  updateTicketCategory,
   closeTicket,
   getStats,
   addMessage,

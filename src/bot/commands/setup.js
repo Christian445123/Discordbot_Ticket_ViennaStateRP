@@ -4,11 +4,10 @@ const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   EmbedBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
   ChannelType,
 } = require('discord.js');
-const db = require('../../database/db');
+const db           = require('../../database/db');
+const panelBuilder = require('../panelBuilder');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -33,6 +32,14 @@ module.exports = {
       opt.setName('panel_kanal')
          .setDescription('Kanal, in dem das Ticket-Panel gepostet wird')
          .addChannelTypes(ChannelType.GuildText)
+         .setRequired(false))
+    .addStringOption(opt =>
+      opt.setName('panel_beschreibung')
+         .setDescription('Eigener Beschreibungstext für das Panel')
+         .setRequired(false))
+    .addStringOption(opt =>
+      opt.setName('panel_bild')
+         .setDescription('Bild-URL, die im Panel angezeigt wird')
          .setRequired(false)),
 
   async execute(interaction) {
@@ -40,45 +47,28 @@ module.exports = {
 
     const { guild, options } = interaction;
 
-    db.ensureGuild.run(guild.id);
+    db.ensureGuildWithDefaults(guild.id);
 
-    const updates = {};
+    const updates    = {};
     const category   = options.getChannel('kategorie');
     const logChannel = options.getChannel('log_kanal');
     const staffRole  = options.getRole('staff_rolle');
     const panelChan  = options.getChannel('panel_kanal');
+    const panelDesc  = options.getString('panel_beschreibung');
+    const panelImage = options.getString('panel_bild');
 
     if (category)   updates.ticket_category_id = category.id;
     if (logChannel) updates.log_channel_id      = logChannel.id;
-    if (staffRole)  updates.staff_role_id        = staffRole.id;
+    if (staffRole)  updates.staff_role_id       = staffRole.id;
+    if (panelDesc)  updates.panel_description   = panelDesc;
+    if (panelImage) updates.panel_image_url     = panelImage;
 
     if (Object.keys(updates).length > 0) db.updateGuild(guild.id, updates);
 
     // Post panel if panel channel given
     if (panelChan) {
-      const embed = new EmbedBuilder()
-        .setTitle('🎫 Support-Tickets')
-        .setDescription(
-          'Benötigst du Hilfe oder hast ein Anliegen?\n' +
-          'Wähle eine Kategorie aus dem Menü und erstelle ein Ticket.'
-        )
-        .setColor(0x5865F2)
-        .setFooter({ text: guild.name });
-
-      const select = new StringSelectMenuBuilder()
-        .setCustomId('ticket_category')
-        .setPlaceholder('Kategorie auswählen…')
-        .addOptions([
-          { label: 'Support',         value: 'Support',         emoji: '🛠️' },
-          { label: 'Bug-Report',      value: 'Bug-Report',      emoji: '🐛' },
-          { label: 'Bewerbung',       value: 'Bewerbung',       emoji: '📋' },
-          { label: 'Beschwerde',      value: 'Beschwerde',      emoji: '⚠️' },
-          { label: 'Allgemein',       value: 'Allgemein',       emoji: '💬' },
-        ]);
-
-      const row = new ActionRowBuilder().addComponents(select);
-
-      const msg = await panelChan.send({ embeds: [embed], components: [row] });
+      const payload = panelBuilder.buildPanelPayload(guild);
+      const msg     = await panelChan.send(payload);
 
       db.updateGuild(guild.id, {
         panel_channel_id:  panelChan.id,

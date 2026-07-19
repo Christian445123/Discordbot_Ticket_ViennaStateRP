@@ -85,20 +85,74 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
 /setup kategorie:#ticket-kategorie log_kanal:#ticket-logs staff_rolle:@Staff panel_kanal:#support
 ```
 
-| Option          | Beschreibung                                                    |
-|-----------------|---------------------------------------------------------------- |
-| `kategorie`     | Kategorie, in der neue Ticket-Kanäle angelegt werden           |
-| `log_kanal`     | Kanal für Logs & Transkripte beim Schließen                    |
-| `staff_rolle`   | Rolle, die alle Ticket-Kanäle sehen & verwalten darf           |
-| `panel_kanal`   | Kanal, in dem das Ticket-Erstellungs-Panel gepostet wird       |
+| Option               | Beschreibung                                                    |
+|----------------------|---------------------------------------------------------------- |
+| `kategorie`          | Discord-Kategorie, in der neue Ticket-Kanäle angelegt werden   |
+| `log_kanal`          | Kanal für Logs & Transkripte beim Schließen                    |
+| `staff_rolle`        | Rolle, die alle Ticket-Kanäle sehen & verwalten darf            |
+| `panel_kanal`        | Kanal, in dem das Ticket-Erstellungs-Panel gepostet wird        |
+| `panel_beschreibung` | Eigener Beschreibungstext für das Panel-Embed                  |
+| `panel_bild`         | Bild-URL, die groß im Panel-Embed angezeigt wird                |
+
+Damit eine Rolle (z. B. `@Team`) volle Verwaltungsrechte über alle Tickets bekommt – Zugriff auf
+jeden Ticket-Kanal, Web-Dashboard "Alle Tickets", Tickets schließen, Notizen, Kategorie ändern –
+reicht es, sie einmalig als `staff_rolle` zu setzen:
+
+```
+/setup staff_rolle:@Team
+```
+
+Innerhalb eines Ticket-Kanals kann Staff die Kategorie danach jederzeit mit `/kategorie
+neue_kategorie:<Kategorie>` ändern (oder über das Dropdown in der Web-Ansicht des Tickets).
 
 ## Ticket-Kategorien
 
-- Support
-- Bug-Report
-- Bewerbung
-- Beschwerde
-- Allgemein
+Kategorien sind **pro Server konfigurierbar** (nicht mehr fest im Code) – jede hat einen Namen,
+ein Emoji, eine im Panel angezeigte Beschreibung, optional ein Ping-Ziel und optional eine
+automatische Nachricht. Beim ersten Kontakt mit einem Server werden fünf Standardkategorien
+angelegt (Support, Bug-Report, Bewerbung, Beschwerde, Allgemein) – frei anpassbar über
+`/kategorie-config`.
+
+### Kategorien verwalten – `/kategorie-config` (nur Admins)
+
+```
+/kategorie-config hinzufuegen name:Bug-Report emoji:🐛 beschreibung:"Fehler im Spiel melden" ping_rolle:@QA-Team auto_nachricht:"Bitte Screenshots & Reproduktionsschritte angeben." auto_im_kanal:true auto_als_dm:false
+/kategorie-config bearbeiten name:Bug-Report ping_user:@Max
+/kategorie-config entfernen name:Beschwerde
+/kategorie-config liste
+```
+
+| Feld              | Beschreibung                                                                 |
+|-------------------|-------------------------------------------------------------------------------|
+| `name`            | Anzeigename der Kategorie (im Dropdown, Panel, Web-Interface)                |
+| `emoji`           | Icon im Dropdown & Panel                                                     |
+| `beschreibung`    | Kurztext, der im Panel-Embed unter dem Kategorienamen steht                  |
+| `ping_rolle` / `ping_user` | Wer beim Erstellen eines Tickets dieser Kategorie gepingt wird (nur eines von beiden) – bekommt automatisch Zugriff auf den Ticket-Kanal |
+| `auto_nachricht`  | Zusätzlicher Text, der beim Erstellen automatisch gesendet wird              |
+| `auto_im_kanal`   | Automatische Nachricht im neuen Ticket-Kanal posten (Standard: ja)           |
+| `auto_als_dm`     | Automatische Nachricht zusätzlich per Direktnachricht an den Ersteller senden (Standard: nein) |
+
+Name-Felder bei `bearbeiten`/`entfernen` bieten Autovervollständigung – die letzte verbleibende
+Kategorie eines Servers kann nicht gelöscht werden.
+
+### Kategorie eines bestehenden Tickets ändern – `/kategorie`
+
+Innerhalb eines Ticket-Kanals kann Staff die Kategorie mit `/kategorie neue_kategorie:<Kategorie>`
+ändern (oder über das Dropdown in der Web-Ansicht des Tickets).
+
+### Panel senden/aktualisieren – `/panel`
+
+Das Panel kann auch unabhängig von `/setup` (neu) gepostet oder nach Kategorie-Änderungen
+aktualisiert werden:
+
+```
+/panel senden kanal:#support
+/panel aktualisieren
+```
+
+Das Panel zeigt automatisch alle konfigurierten Kategorien mit Emoji + Beschreibung im Embed,
+plus optionalem Bild (`panel_bild` in `/setup`) – ähnlich einem klassischen Ticket-Panel mit
+Dropdown-Auswahl.
 
 ## Web-Chat (Nachrichten aus dem Browser)
 
@@ -133,10 +187,15 @@ geschrieben werden – nicht nur gelesen:
 │   ├── bot/
 │   │   ├── bot.js              # Discord-Client mit Command/Event-Loader
 │   │   ├── deploy-commands.js  # Slash-Command Registrierung
-│   │   ├── ticketLog.js        # Zentrales Logging in den Log-Kanal (erstellt/geschlossen/Notiz)
+│   │   ├── ticketLog.js        # Zentrales Logging in den Log-Kanal (erstellt/geschlossen/Notiz/Kategorie)
+│   │   ├── categoryNotify.js   # Ping-Ziel & automatische Nachricht pro Kategorie anwenden
+│   │   ├── panelBuilder.js     # Baut das Panel-Embed + Dropdown aus den DB-Kategorien
 │   │   ├── commands/
-│   │   │   ├── setup.js        # /setup – System einrichten
-│   │   │   └── close.js        # /close – Ticket schließen
+│   │   │   ├── setup.js            # /setup – System einrichten
+│   │   │   ├── close.js            # /close – Ticket schließen
+│   │   │   ├── kategorie.js        # /kategorie – Kategorie eines Tickets ändern
+│   │   │   ├── kategorie-config.js # /kategorie-config – Kategorien verwalten (hinzufügen/bearbeiten/entfernen/liste)
+│   │   │   └── panel.js            # /panel – Panel senden/aktualisieren
 │   │   └── events/
 │   │       ├── ready.js
 │   │       ├── interactionCreate.js  # Buttons, Modals, Slash-Commands

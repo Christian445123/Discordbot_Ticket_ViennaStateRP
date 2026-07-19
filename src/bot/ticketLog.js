@@ -78,4 +78,40 @@ async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content
     .catch(err => logger.error('Log-Kanal (Notiz) fehlgeschlagen:', err.message));
 }
 
-module.exports = { logTicketCreated, logTicketClosed, logNoteAdded };
+async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory, newCategory, changedByTag }) {
+  const logCh = getLogChannel(discordClient, guildId);
+  if (!logCh) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏷️ Kategorie geändert')
+    .setColor(0x5865F2)
+    .addFields(
+      { name: 'Ticket-Nr.',   value: `#${String(ticket.ticket_number).padStart(4, '0')}`, inline: true },
+      { name: 'Von',          value: oldCategory,                                          inline: true },
+      { name: 'Zu',           value: newCategory,                                          inline: true },
+      { name: 'Geändert von', value: changedByTag,                                         inline: true },
+    )
+    .setTimestamp();
+
+  await logCh.send({ embeds: [embed] })
+    .catch(err => logger.error('Log-Kanal (Kategorie geändert) fehlgeschlagen:', err.message));
+}
+
+async function logCategoryConfigChanged(discordClient, guildId, { action, name, changedByTag }) {
+  const logCh = getLogChannel(discordClient, guildId);
+  if (!logCh) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏷️ Kategorie-Konfiguration geändert')
+    .setColor(0x5865F2)
+    .setDescription(`Kategorie **${name}** wurde ${action}.`)
+    .setFooter({ text: `Von ${changedByTag}` })
+    .setTimestamp();
+
+  await logCh.send({ embeds: [embed] })
+    .catch(err => logger.error('Log-Kanal (Kategorie-Konfiguration) fehlgeschlagen:', err.message));
+}
+
+module.exports = {
+  logTicketCreated, logTicketClosed, logNoteAdded, logCategoryChanged, logCategoryConfigChanged,
+};

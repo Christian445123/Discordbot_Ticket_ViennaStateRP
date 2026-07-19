@@ -1,7 +1,7 @@
 /* ── Base & Variables ─────────────────────────────────────────────────────── */
 :root {
   --bg-base:       #1e1f22;
-  --bg-card:       #2b2d31;
+  --bg-card:       #33353b;
   --bg-dark:       #111214;
   --bg-message:    #383a40;
   --bg-message-me: #3d4270;
@@ -10,9 +10,9 @@
   --success:       #57f287;
   --danger:        #ed4245;
   --warning:       #fee75c;
-  --muted:         #96989d;
-  --text:          #e3e5e8;
-  --border:        rgba(255,255,255,.06);
+  --muted:         #aeb1b7;
+  --text:          #f2f3f5;
+  --border:        rgba(255,255,255,.1);
   --radius:        10px;
 }
 
@@ -24,6 +24,10 @@ body {
   font-family: "gg sans", "Noto Sans", system-ui, sans-serif;
   margin: 0;
 }
+
+/* Headings set explicitly rather than relying on inherited/Bootstrap defaults,
+   so they can never end up low-contrast regardless of cascade order. */
+h1, h2, h3, h4, h5, h6 { color: var(--text); }
 
 /* ── Navbar ─────────────────────────────────────────────────────────────────── */
 .bg-dark-custom {
@@ -145,12 +149,15 @@ a:focus-visible {
 .badge-closed { background-color: rgba(150,152,157,.15); color: var(--muted); }
 .badge-cat    { background-color: rgba(88,101,242,.15);  color: var(--accent); }
 
-/* Per-category colors, matching the panel emoji/order in setup.js */
-.badge-cat-support     { background-color: rgba(88,101,242,.15);  color: #5865f2; }
-.badge-cat-bug-report  { background-color: rgba(237,66,69,.15);   color: #ed4245; }
-.badge-cat-bewerbung   { background-color: rgba(87,242,135,.15);  color: #57f287; }
-.badge-cat-beschwerde  { background-color: rgba(254,231,92,.15);  color: #fee75c; }
-.badge-cat-allgemein   { background-color: rgba(150,152,157,.15); color: #96989d; }
+/* Category colors — categories are admin-defined (see /kategorie-config), so
+   badges are assigned one of these 6 palette slots deterministically by name
+   (see categoryClass() in dashboard.js / ticket.js) rather than by fixed name. */
+.badge-cat-1 { background-color: rgba(88,101,242,.15);  color: #5865f2; }
+.badge-cat-2 { background-color: rgba(237,66,69,.15);   color: #ed4245; }
+.badge-cat-3 { background-color: rgba(87,242,135,.15);  color: #57f287; }
+.badge-cat-4 { background-color: rgba(254,231,92,.15);  color: #fee75c; }
+.badge-cat-5 { background-color: rgba(150,152,157,.15); color: #96989d; }
+.badge-cat-6 { background-color: rgba(235,69,158,.15);  color: #eb459e; }
 
 .ticket-badge {
   display: inline-block;

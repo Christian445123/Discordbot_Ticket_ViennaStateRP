@@ -2,6 +2,7 @@
 
 let allTickets  = [];
 let currentUser = null;
+let categories  = [];
 let activeTab   = 'mine'; // 'mine' | 'all'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -18,16 +19,15 @@ function statusBadge(status) {
   const icon  = status === 'open' ? 'bi-circle-fill' : 'bi-lock-fill';
   return `<span class="ticket-badge ${cls}"><i class="bi ${icon} me-1" style="font-size:.6rem"></i>${label}</span>`;
 }
-const CATEGORY_CLASS = {
-  'Support':     'badge-cat-support',
-  'Bug-Report':  'badge-cat-bug-report',
-  'Bewerbung':   'badge-cat-bewerbung',
-  'Beschwerde':  'badge-cat-beschwerde',
-  'Allgemein':   'badge-cat-allgemein',
-};
+// Categories are admin-defined (see /kategorie-config), so badge color is
+// derived deterministically from the name instead of a fixed lookup table.
+function categoryClass(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return `badge-cat-${(hash % 6) + 1}`;
+}
 function catBadge(cat) {
-  const cls = CATEGORY_CLASS[cat] || 'badge-cat';
-  return `<span class="ticket-badge ${cls}">${escapeHtml(cat)}</span>`;
+  return `<span class="ticket-badge ${categoryClass(cat)}">${escapeHtml(cat)}</span>`;
 }
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -51,6 +51,23 @@ async function loadUser() {
   }
   // Hide "Benutzer" column when viewing own tickets
   updateColumnVisibility();
+}
+
+// ── Load categories ───────────────────────────────────────────────────────────
+async function loadCategories() {
+  try {
+    categories = await fetch('/api/categories').then(r => r.json());
+  } catch { categories = []; }
+
+  const filterOptions = categories
+    .map(c => `<option value="${escapeHtml(c.name)}">${c.emoji ? `${c.emoji} ` : ''}${escapeHtml(c.name)}</option>`)
+    .join('');
+  document.getElementById('categoryFilter').innerHTML = `<option value="">Alle Kategorien</option>${filterOptions}`;
+
+  const createOptions = categories
+    .map(c => `<option value="${escapeHtml(c.name)}">${c.emoji ? `${c.emoji} ` : ''}${escapeHtml(c.name)}</option>`)
+    .join('');
+  document.getElementById('createCategory').innerHTML = `<option value="">— Bitte wählen —</option>${createOptions}`;
 }
 
 // ── Load stats ────────────────────────────────────────────────────────────────
@@ -200,5 +217,6 @@ document.getElementById('createModal')?.addEventListener('hidden.bs.modal', () =
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadUser();
+loadCategories();
 loadStats();
 loadTickets();

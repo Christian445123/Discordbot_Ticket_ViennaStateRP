@@ -12,9 +12,10 @@ const {
   PermissionFlagsBits,
   ChannelType,
 } = require('discord.js');
-const db        = require('../../database/db');
-const ticketLog = require('../ticketLog');
-const logger    = require('../../utils/logger');
+const db             = require('../../database/db');
+const ticketLog      = require('../ticketLog');
+const categoryNotify = require('../categoryNotify');
+const logger         = require('../../utils/logger');
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
@@ -60,7 +61,7 @@ async function closeTicket(interaction, ticket) {
 async function createTicketChannel(interaction, category, subject) {
   const { guild, user } = interaction;
 
-  db.ensureGuild.run(guild.id);
+  db.ensureGuildWithDefaults(guild.id);
 
   // Prevent duplicate open ticket
   const existing = db.getOpenTicketByUser.get(guild.id, user.id);
@@ -89,6 +90,8 @@ async function createTicketChannel(interaction, category, subject) {
   });
   const ticketId = result.lastInsertRowid;
 
+  const categoryCfg = db.getCategoryByName.get(guild.id, category);
+
   // Build permission overwrites
   const overwrites = [
     { id: guild.id,           deny:  [PermissionFlagsBits.ViewChannel] },
@@ -98,6 +101,13 @@ async function createTicketChannel(interaction, category, subject) {
   if (guildCfg?.staff_role_id) {
     overwrites.push({
       id:    guildCfg.staff_role_id,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+    });
+  }
+  // Make sure a category's ping target can actually see the channel it gets pinged into
+  if (categoryCfg?.ping_target_id && !overwrites.some(o => o.id === categoryCfg.ping_target_id)) {
+    overwrites.push({
+      id:    categoryCfg.ping_target_id,
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
     });
   }
@@ -132,10 +142,15 @@ async function createTicketChannel(interaction, category, subject) {
 
   const row = new ActionRowBuilder().addComponents(closeBtn);
 
+  const pingMention = categoryNotify.buildPingMention(categoryCfg);
   await channel.send({
-    content: `${user} Willkommen! Ein Teammitglied wird sich bald melden.`,
+    content: `${user} Willkommen! Ein Teammitglied wird sich bald melden.${pingMention ? ` ${pingMention}` : ''}`,
     embeds: [embed],
     components: [row],
+  });
+
+  await categoryNotify.applyCategoryExtras(interaction.client, guild.id, {
+    categoryName: category, channel, userId: user.id,
   });
 
   // Log channel
@@ -157,6 +172,18 @@ module.exports = {
   name: Events.InteractionCreate,
 
   async execute(interaction) {
+
+    // ── Slash command autocomplete ──────────────────────────────────────────
+    if (interaction.isAutocomplete()) {
+      const command = interaction.client.commands.get(interaction.commandName);
+      if (!command?.autocomplete) return;
+      try {
+        await command.autocomplete(interaction);
+      } catch (err) {
+        logger.error(`Autocomplete für "${interaction.commandName}" fehlgeschlagen:`, err);
+      }
+      return;
+    }
 
     // ── Slash commands ──────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {

@@ -82,13 +82,9 @@
         <option value="open">Offen</option>
         <option value="closed">Geschlossen</option>
       </select>
+      <!-- Options populated dynamically from /api/categories by dashboard.js -->
       <select id="categoryFilter" class="form-select form-select-sm" style="max-width:170px">
         <option value="">Alle Kategorien</option>
-        <option>Support</option>
-        <option>Bug-Report</option>
-        <option>Bewerbung</option>
-        <option>Beschwerde</option>
-        <option>Allgemein</option>
       </select>
       <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="loadTickets()">
         <i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren
@@ -140,13 +136,9 @@
           <div id="createAlert" class="alert d-none mb-3"></div>
           <div class="mb-3">
             <label class="form-label text-muted small">Kategorie <span class="text-danger">*</span></label>
+            <!-- Options populated dynamically from /api/categories by dashboard.js -->
             <select id="createCategory" class="form-select">
               <option value="">— Bitte wählen —</option>
-              <option value="Support">🛠️ Support</option>
-              <option value="Bug-Report">🐛 Bug-Report</option>
-              <option value="Bewerbung">📋 Bewerbung</option>
-              <option value="Beschwerde">⚠️ Beschwerde</option>
-              <option value="Allgemein">💬 Allgemein</option>
             </select>
           </div>
           <div class="mb-3">
