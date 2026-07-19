@@ -45,9 +45,10 @@ async function loadUser() {
     ${currentUser.isStaff ? '<span class="ticket-badge badge-open ms-1">Staff</span>' : ''}
   `;
 
-  // Show "Alle Tickets" tab for staff
+  // Show "Alle Tickets" + "Einstellungen" tabs for staff
   if (currentUser.isStaff) {
     document.getElementById('tab-all').classList.remove('d-none');
+    document.getElementById('tab-settings').classList.remove('d-none');
   }
   // Hide "Benutzer" column when viewing own tickets
   updateColumnVisibility();
@@ -56,7 +57,9 @@ async function loadUser() {
 // ── Load categories ───────────────────────────────────────────────────────────
 async function loadCategories() {
   try {
-    categories = await fetch('/api/categories').then(r => r.json());
+    const res  = await fetch('/api/categories');
+    const data = await res.json();
+    categories = Array.isArray(data) ? data : [];
   } catch { categories = []; }
 
   const filterOptions = categories
@@ -85,8 +88,20 @@ function switchTab(tab) {
   activeTab = tab;
   document.getElementById('tab-mine').classList.toggle('active', tab === 'mine');
   document.getElementById('tab-all').classList.toggle('active',  tab === 'all');
-  updateColumnVisibility();
-  loadTickets();
+  document.getElementById('tab-settings').classList.toggle('active', tab === 'settings');
+
+  const isSettings = tab === 'settings';
+  document.querySelector('.d-flex.flex-wrap.gap-2.align-items-center.mb-3')?.classList.toggle('d-none', isSettings);
+  document.querySelector('.card.bg-dark-card')?.classList.toggle('d-none', isSettings);
+  document.getElementById('emptyHint').classList.add('d-none');
+  document.getElementById('settingsPanel').classList.toggle('d-none', !isSettings);
+
+  if (isSettings) {
+    loadCategorySettings();
+  } else {
+    updateColumnVisibility();
+    loadTickets();
+  }
 }
 
 function updateColumnVisibility() {
@@ -197,6 +212,96 @@ function showCreateAlert(type, msg) {
   const el = document.getElementById('createAlert');
   el.className = `alert alert-${type}`;
   el.textContent = msg;
+}
+
+// ── Category settings (Staff) ─────────────────────────────────────────────────
+let adminCategories = [];
+
+async function loadCategorySettings() {
+  const container = document.getElementById('categoryCards');
+  container.innerHTML = '<p class="text-muted small">Lade Kategorien…</p>';
+  try {
+    const res  = await fetch('/api/admin/categories');
+    if (!res.ok) { container.innerHTML = '<p class="text-danger small">Fehler beim Laden.</p>'; return; }
+    adminCategories = await res.json();
+    renderCategoryCards();
+  } catch {
+    container.innerHTML = '<p class="text-danger small">Netzwerkfehler.</p>';
+  }
+}
+
+function renderCategoryCards() {
+  const container = document.getElementById('categoryCards');
+  if (!adminCategories.length) {
+    container.innerHTML = '<p class="text-muted small">Keine Kategorien konfiguriert.</p>';
+    return;
+  }
+  container.innerHTML = adminCategories.map(c => `
+    <div class="col-md-6 col-lg-4">
+      <div class="card bg-dark-card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold">${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</span>
+            <button class="btn btn-sm btn-outline-primary" onclick="openCategoryEdit(${escapeHtml(JSON.stringify(c.name))})">
+              <i class="bi bi-pencil-fill"></i>
+            </button>
+          </div>
+          <p class="text-muted small mb-1">
+            <i class="bi bi-chat-left-text me-1"></i>
+            ${c.welcome_message ? escapeHtml(c.welcome_message.substring(0, 80)) + (c.welcome_message.length > 80 ? '…' : '') : '<span class="fst-italic">Keine Willkommensnachricht</span>'}
+          </p>
+          <p class="text-muted small mb-0">
+            <i class="bi bi-send me-1"></i>
+            ${c.auto_message ? escapeHtml(c.auto_message.substring(0, 80)) + (c.auto_message.length > 80 ? '…' : '') : '<span class="fst-italic">Keine Auto-Nachricht</span>'}
+          </p>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function openCategoryEdit(name) {
+  const c = adminCategories.find(x => x.name === name);
+  if (!c) return;
+  document.getElementById('catEditTitle').innerHTML =
+    `<i class="bi bi-pencil-fill text-primary me-2"></i>${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)} bearbeiten`;
+  document.getElementById('catEditName').value          = c.name;
+  document.getElementById('catEditWelcome').value       = c.welcome_message || '';
+  document.getElementById('catEditAutoMsg').value       = c.auto_message    || '';
+  document.getElementById('catEditAutoChannel').checked = !!c.auto_message_channel;
+  document.getElementById('catEditAutoDm').checked      = !!c.auto_message_dm;
+  document.getElementById('catEditAlert').className     = 'alert d-none';
+  new bootstrap.Modal(document.getElementById('catEditModal')).show();
+}
+
+async function saveCategoryEdit() {
+  const name    = document.getElementById('catEditName').value;
+  const alert   = document.getElementById('catEditAlert');
+  const payload = {
+    welcome_message:      document.getElementById('catEditWelcome').value.trim(),
+    auto_message:         document.getElementById('catEditAutoMsg').value.trim(),
+    auto_message_channel: document.getElementById('catEditAutoChannel').checked ? 1 : 0,
+    auto_message_dm:      document.getElementById('catEditAutoDm').checked      ? 1 : 0,
+  };
+  alert.className   = 'alert alert-info';
+  alert.textContent = 'Speichern…';
+  try {
+    const res = await fetch(`/api/admin/categories/${encodeURIComponent(name)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert.className   = 'alert alert-success';
+      alert.textContent = '✓ Gespeichert';
+      await loadCategorySettings();
+      setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('catEditModal'))?.hide(), 800);
+    } else {
+      alert.className   = 'alert alert-danger';
+      alert.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alert.className   = 'alert alert-danger';
+    alert.textContent = 'Netzwerkfehler';
+  }
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────

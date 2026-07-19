@@ -52,6 +52,7 @@ async function init() {
       description           VARCHAR(255) DEFAULT '',
       ping_type             VARCHAR(10),
       ping_target_id        VARCHAR(32),
+      welcome_message       TEXT,
       auto_message          TEXT,
       auto_message_channel  TINYINT(1) DEFAULT 1,
       auto_message_dm       TINYINT(1) DEFAULT 0,
@@ -59,6 +60,8 @@ async function init() {
       UNIQUE KEY uniq_guild_category (guild_id, name)
     ) ENGINE=InnoDB
   `);
+  // Migration: add welcome_message to existing tables
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS welcome_message TEXT DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -155,9 +158,9 @@ async function getCategoryCount(guildId) {
 async function insertCategory(data) {
   await query(`
     INSERT INTO categories
-      (guild_id, name, emoji, description, ping_type, ping_target_id, auto_message, auto_message_channel, auto_message_dm, sort_order)
+      (guild_id, name, emoji, description, ping_type, ping_target_id, welcome_message, auto_message, auto_message_channel, auto_message_dm, sort_order)
     VALUES
-      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :auto_message, :auto_message_channel, :auto_message_dm, :sort_order)
+      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :sort_order)
   `, data);
 }
 
@@ -176,7 +179,7 @@ async function seedDefaultCategories(guildId) {
   for (const [i, c] of DEFAULT_CATEGORIES.entries()) {
     await insertCategory({
       guild_id: guildId, name: c.name, emoji: c.emoji, description: '',
-      ping_type: null, ping_target_id: null, auto_message: null,
+      ping_type: null, ping_target_id: null, welcome_message: null, auto_message: null,
       auto_message_channel: 1, auto_message_dm: 0, sort_order: i,
     });
   }

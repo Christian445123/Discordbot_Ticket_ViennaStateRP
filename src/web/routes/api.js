@@ -36,8 +36,10 @@ async function checkStaff(discordClient, guildId, userId) {
   try {
     const guildCfg = await db.getGuild(guildId);
     if (!guildCfg?.staff_role_id) return false;
-    if (!discordClient.guilds.cache.has(guildId)) return false;
-    const guild  = discordClient.guilds.cache.get(guildId);
+    // Fetch the guild from Discord if it's not cached yet (e.g. bot still connecting)
+    const guild = discordClient.guilds.cache.get(guildId)
+               ?? await discordClient.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return false;
     const member = guild.members.cache.get(userId)
                    || await guild.members.fetch(userId).catch(() => null);
     if (!member) return false;
@@ -116,10 +118,16 @@ module.exports = function apiRoutes(discordClient) {
 
   // ── Categories (for the create-ticket & category-change dropdowns) ─────────
   router.get('/categories', requireAuth, async (req, res) => {
-    const guildId = process.env.DISCORD_GUILD_ID;
-    await db.ensureGuildWithDefaults(guildId);
-    const rows = await db.getCategories(guildId);
-    res.json(rows.map(c => ({ name: c.name, emoji: c.emoji })));
+    try {
+      const guildId = process.env.DISCORD_GUILD_ID;
+      if (!guildId) return res.status(500).json({ error: 'DISCORD_GUILD_ID nicht konfiguriert' });
+      await db.ensureGuildWithDefaults(guildId);
+      const rows = await db.getCategories(guildId);
+      res.json(rows.map(c => ({ name: c.name, emoji: c.emoji })));
+    } catch (err) {
+      logger.error('Fehler beim Laden der Kategorien:', err.message);
+      res.status(500).json({ error: 'Kategorien konnten nicht geladen werden' });
+    }
   });
 
   // ── Stats ─────────────────────────────────────────────────────────────────
@@ -320,7 +328,8 @@ module.exports = function apiRoutes(discordClient) {
         await db.updateTicketChannel(channel.id, ticketId);
 
         const embed = new EmbedBuilder()
-          .setTitle(`🎫 Ticket #${String(ticket_count).padStart(4, '0')}`)
+          .setTitle(`${categoryCfg?.emoji || '🎫'} ${category} | Ticket`)
+          .setDescription(categoryCfg?.welcome_message || 'Willkommen! Ein Teammitglied wird sich bald melden.')
           .setColor(0x5865F2)
           .addFields(
             { name: 'Erstellt von', value: member ? `${member}` : username, inline: true },
@@ -446,6 +455,50 @@ module.exports = function apiRoutes(discordClient) {
     });
 
     res.json({ success: true });
+  });
+
+  // ── Admin: list categories with full data (Staff only) ───────────────────
+  router.get('/admin/categories', requireAuth, async (req, res) => {
+    try {
+      const guildId = process.env.DISCORD_GUILD_ID;
+      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
+      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
+      await db.ensureGuildWithDefaults(guildId);
+      const rows = await db.getCategories(guildId);
+      res.json(rows);
+    } catch (err) {
+      logger.error('Admin categories error:', err.message);
+      res.status(500).json({ error: 'Fehler beim Laden der Kategorien' });
+    }
+  });
+
+  // ── Admin: update a category's messages (Staff only) ─────────────────────
+  router.put('/admin/categories/:name', requireAuth, async (req, res) => {
+    try {
+      const guildId = process.env.DISCORD_GUILD_ID;
+      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
+      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
+
+      const name = req.params.name;
+      const existing = await db.getCategoryByName(guildId, name);
+      if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
+
+      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji'];
+      const updates = {};
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+          updates[key] = req.body[key] === '' ? null : req.body[key];
+        }
+      }
+      if (Object.keys(updates).length === 0)
+        return res.status(400).json({ error: 'Keine Felder angegeben' });
+
+      await db.updateCategory(guildId, name, updates);
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Admin category update error:', err.message);
+      res.status(500).json({ error: 'Fehler beim Speichern' });
+    }
   });
 
   return router;

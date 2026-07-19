@@ -67,6 +67,9 @@
         <button class="tab-btn d-none" onclick="switchTab('all')" id="tab-all">
           <i class="bi bi-grid-fill me-1"></i>Alle Tickets
         </button>
+        <button class="tab-btn d-none" onclick="switchTab('settings')" id="tab-settings">
+          <i class="bi bi-gear-fill me-1"></i>Einstellungen
+        </button>
       </div>
       <button class="btn btn-primary btn-sm px-3" data-bs-toggle="modal" data-bs-target="#createModal">
         <i class="bi bi-plus-lg me-1"></i>Ticket erstellen
@@ -122,6 +125,12 @@
       <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
       Keine Tickets gefunden.
     </div>
+
+    <!-- Settings panel (Staff only) -->
+    <div id="settingsPanel" class="d-none">
+      <h5 class="mb-3 fw-semibold"><i class="bi bi-tag-fill text-primary me-2"></i>Kategorien verwalten</h5>
+      <div id="categoryCards" class="row g-3"></div>
+    </div>
   </div>
 
   <!-- Create Ticket Modal -->
@@ -163,5 +172,47 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/dashboard.js"></script>
+
+  <!-- Category edit modal -->
+  <div class="modal fade" id="catEditModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content bg-dark-card border-0">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title" id="catEditTitle"><i class="bi bi-pencil-fill text-primary me-2"></i>Kategorie bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="catEditAlert" class="alert d-none mb-3"></div>
+          <input type="hidden" id="catEditName" />
+          <div class="mb-3">
+            <label class="form-label text-muted small">Willkommensnachricht <span class="text-muted">(wird im Ticket-Kanal beim Öffnen angezeigt)</span></label>
+            <textarea id="catEditWelcome" class="form-control" rows="4"
+              placeholder="z. B. Willkommen beim Support! Bitte beschreibe dein Anliegen so genau wie möglich." maxlength="2000"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Automatische Nachricht <span class="text-muted">(wird als separate Nachricht nach der Begrüßung gesendet)</span></label>
+            <textarea id="catEditAutoMsg" class="form-control" rows="3"
+              placeholder="z. B. Für Spenden bitte diesen Link verwenden: …" maxlength="1000"></textarea>
+          </div>
+          <div class="d-flex gap-4">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="catEditAutoChannel" checked />
+              <label class="form-check-label text-muted small" for="catEditAutoChannel">Auto-Nachricht im Kanal senden</label>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="catEditAutoDm" />
+              <label class="form-check-label text-muted small" for="catEditAutoDm">Auto-Nachricht per DM senden</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="button" class="btn btn-primary btn-sm px-4" onclick="saveCategoryEdit()">
+            <i class="bi bi-floppy-fill me-1"></i>Speichern
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

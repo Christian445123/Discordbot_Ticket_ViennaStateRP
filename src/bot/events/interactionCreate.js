@@ -124,7 +124,8 @@ async function createTicketChannel(interaction, category, subject) {
 
   // Welcome embed + close button
   const embed = new EmbedBuilder()
-    .setTitle(`🎫 Ticket #${String(ticket_count).padStart(4, '0')}`)
+    .setTitle(`${categoryCfg?.emoji || '🎫'} ${category} | Ticket`)
+    .setDescription(categoryCfg?.welcome_message || 'Willkommen! Ein Teammitglied wird sich bald melden.')
     .setColor(0x5865F2)
     .addFields(
       { name: 'Erstellt von', value: `${user}`,   inline: true },
