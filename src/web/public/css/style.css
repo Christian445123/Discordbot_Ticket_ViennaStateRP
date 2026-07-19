@@ -221,6 +221,10 @@ a:focus-visible {
 /* ── Utilities ───────────────────────────────────────────────────────────── */
 .text-accent { color: var(--accent); }
 
+/* Bootstrap's .text-muted defaults to a light-theme color (near-black), which
+   is unreadable on our dark cards since the page never sets data-bs-theme="dark". */
+.text-muted { color: var(--muted) !important; }
+
 /* ── Tab bar ──────────────────────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
