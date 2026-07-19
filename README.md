@@ -102,6 +102,7 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
 
 ```
 ├── index.js                    # Einstiegspunkt (Bot + Web-Server)
+├── ecosystem.config.js         # PM2-Konfiguration (Produktion)
 ├── src/
 │   ├── database/
 │   │   └── db.js               # SQLite-Datenbank (better-sqlite3)
@@ -135,10 +136,69 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
     └── tickets.db              # SQLite-Datenbank (auto-erstellt)
 ```
 
+## Logging
+
+Es gibt zwei unabhängige Logging-Ebenen.
+
+### 1. Server-Logs (Konsole)
+
+Alle internen Vorgänge (Start, Fehler, fehlgeschlagene Commands/Kanal-Erstellung, …) laufen über
+`src/utils/logger.js` und werden mit Zeitstempel + Log-Level ausgegeben:
+
+```
+[2026-07-19T14:32:01.123Z] [INFO] ✅ Bot eingeloggt als TicketBot#1234
+[2026-07-19T14:32:05.456Z] [ERROR] Command "close" fehlgeschlagen: ...
+```
+
+Steuerbar über `LOG_LEVEL` in `.env`: `error` | `warn` | `info` (Standard) | `debug`.
+
+Zusätzlich fängt `index.js` unbehandelte Fehler ab:
+- `unhandledRejection` wird geloggt, der Prozess läuft weiter (meist unkritisch, z. B. ein
+  fehlgeschlagener Discord-API-Call).
+- `uncaughtException` wird geloggt und der Prozess wird danach bewusst beendet (`process.exit(1)`) –
+  laut Node.js ist ein Weiterlaufen nach einer uncaught exception unsicher. Unter PM2 sorgt das dafür,
+  dass der Prozess sauber neu startet, statt in einem funktionsunfähigen Zustand hängen zu bleiben und
+  keine weiteren Logs mehr zu produzieren.
+
+### 2. Discord Log-Kanal
+
+Der unter `/setup log_kanal:` konfigurierte Kanal erhält bei jeder Ticket-Aktion eine Embed-Nachricht
+(über `src/bot/ticketLog.js`, gemeinsam genutzt von Bot- und Web-Pfad, damit keine Aktion vergessen wird):
+
+| Aktion             | Inhalt                                                                | Quelle              |
+|--------------------|------------------------------------------------------------------------|---------------------|
+| Ticket erstellt    | Kanal, Benutzer, Kategorie                                             | 🎮 Discord / 🌐 Web |
+| Ticket geschlossen | Ticket-Nr., Ersteller, wer geschlossen hat, Transkript (`.txt`-Anhang) | 🎮 Discord / 🌐 Web |
+| Notiz hinzugefügt  | Ticket-Nr., Autor, Notiztext                                           | 🌐 Web (Staff)      |
+
+Egal ob eine Aktion per Discord (Button/Slash-Command) oder über das Web-Interface ausgelöst wird,
+landet sie im selben Log-Kanal – die Quelle steht im Embed.
+
+### 3. PM2 (Produktion)
+
+Die mitgelieferte `ecosystem.config.js` schreibt die Logs in eigene Dateien statt nach `~/.pm2/logs/`:
+
+```bash
+npm run pm2:start     # Start über ecosystem.config.js
+npm run pm2:logs      # Live-Logs verfolgen (tail -f)
+npm run pm2:restart
+npm run pm2:stop
+```
+
+Logs landen in `./logs/out.log` und `./logs/error.log` (bereits in `.gitignore`). Für automatische
+Rotation empfiehlt sich das PM2-Modul `pm2-logrotate`:
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 14
+```
+
 ## Produktion
 
 Für den Produktionseinsatz empfiehlt sich:
 - Reverse-Proxy (nginx/Caddy) mit HTTPS
 - `SESSION_SECRET` in `.env` als langen, zufälligen String setzen
 - `cookie.secure = true` in `src/web/server.js` aktivieren (bei HTTPS)
-- Prozessmanager (PM2): `pm2 start index.js --name ticket-bot`
+- Prozessmanager (PM2) über die mitgelieferte Konfiguration starten: `npm run pm2:start`
+  (siehe [Logging](#logging) für Log-Speicherort & Rotation)

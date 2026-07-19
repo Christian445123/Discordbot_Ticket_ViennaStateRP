@@ -18,8 +18,16 @@ function statusBadge(status) {
   const icon  = status === 'open' ? 'bi-circle-fill' : 'bi-lock-fill';
   return `<span class="ticket-badge ${cls}"><i class="bi ${icon} me-1" style="font-size:.6rem"></i>${label}</span>`;
 }
+const CATEGORY_CLASS = {
+  'Support':     'badge-cat-support',
+  'Bug-Report':  'badge-cat-bug-report',
+  'Bewerbung':   'badge-cat-bewerbung',
+  'Beschwerde':  'badge-cat-beschwerde',
+  'Allgemein':   'badge-cat-allgemein',
+};
 function catBadge(cat) {
-  return `<span class="ticket-badge badge-cat">${escapeHtml(cat)}</span>`;
+  const cls = CATEGORY_CLASS[cat] || 'badge-cat';
+  return `<span class="ticket-badge ${cls}">${escapeHtml(cat)}</span>`;
 }
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

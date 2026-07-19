@@ -27,5 +27,14 @@ process.on('SIGINT',  () => { client.destroy(); process.exit(0); });
 process.on('SIGTERM', () => { client.destroy(); process.exit(0); });
 
 // ── Safety net for unlogged crashes ─────────────────────────────────────────
+// Promise rejections are usually recoverable (e.g. a failed Discord API call) — log and continue.
 process.on('unhandledRejection', err => logger.error('Unhandled Rejection:', err));
-process.on('uncaughtException',  err => logger.error('Uncaught Exception:', err));
+
+// An uncaught exception leaves the process in an undefined state (Node docs:
+// "unsafe to resume normal operation"). Logging without exiting means PM2 never
+// sees the process die, so it never restarts it — the bot just hangs silently
+// with no further log output. Log it, then exit so PM2 restarts cleanly.
+process.on('uncaughtException', err => {
+  logger.error('Uncaught Exception, restarting process:', err);
+  process.exit(1);
+});

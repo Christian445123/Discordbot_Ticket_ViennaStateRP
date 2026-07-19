@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "deploy-commands": "node src/bot/deploy-commands.js"
+    "deploy-commands": "node src/bot/deploy-commands.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:restart": "pm2 restart ticket-bot",
+    "pm2:stop": "pm2 stop ticket-bot",
+    "pm2:logs": "pm2 logs ticket-bot"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
