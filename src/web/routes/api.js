@@ -8,6 +8,13 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Nicht angemeldet' });
 }
 
+function requireGuildMember(req, res, next) {
+  const guildId   = process.env.DISCORD_GUILD_ID;
+  const isInGuild = req.user.guilds?.some(g => g.id === guildId);
+  if (!isInGuild) return res.status(403).json({ error: 'Du bist kein Mitglied dieses Servers' });
+  return next();
+}
+
 function escHtml(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -137,7 +144,7 @@ module.exports = function apiRoutes(discordClient) {
   });
 
   // ── Create ticket from web ────────────────────────────────────────────────
-  router.post('/tickets', requireAuth, async (req, res) => {
+  router.post('/tickets', requireAuth, requireGuildMember, async (req, res) => {
     const { category, subject, description } = req.body;
     if (!category || !subject?.trim())
       return res.status(400).json({ error: 'Kategorie und Betreff sind erforderlich' });
