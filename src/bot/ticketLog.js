@@ -7,15 +7,15 @@ const { EmbedBuilder } = require('discord.js');
 const db     = require('../database/db');
 const logger = require('../utils/logger');
 
-function getLogChannel(discordClient, guildId) {
-  const guildCfg = db.getGuild.get(guildId);
+async function getLogChannel(discordClient, guildId) {
+  const guildCfg = await db.getGuild(guildId);
   if (!guildCfg?.log_channel_id) return null;
   const guild = discordClient.guilds.cache.get(guildId);
   return guild?.channels.cache.get(guildCfg.log_channel_id) ?? null;
 }
 
 async function logTicketCreated(discordClient, guildId, { channel, username, category, source }) {
-  const logCh = getLogChannel(discordClient, guildId);
+  const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
   const embed = new EmbedBuilder()
@@ -34,10 +34,10 @@ async function logTicketCreated(discordClient, guildId, { channel, username, cat
 }
 
 async function logTicketClosed(discordClient, guildId, { ticket, closedByTag, source }) {
-  const logCh = getLogChannel(discordClient, guildId);
+  const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
-  const messages = db.getMessages.all(ticket.id);
+  const messages = await db.getMessages(ticket.id);
   const transcript = messages
     .map(m => `[${m.created_at}] ${m.username}: ${m.content}`)
     .join('\n') || '(keine Nachrichten)';
@@ -61,7 +61,7 @@ async function logTicketClosed(discordClient, guildId, { ticket, closedByTag, so
 }
 
 async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content }) {
-  const logCh = getLogChannel(discordClient, guildId);
+  const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
   const embed = new EmbedBuilder()
@@ -79,7 +79,7 @@ async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content
 }
 
 async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory, newCategory, changedByTag }) {
-  const logCh = getLogChannel(discordClient, guildId);
+  const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
   const embed = new EmbedBuilder()
@@ -98,7 +98,7 @@ async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory,
 }
 
 async function logCategoryConfigChanged(discordClient, guildId, { action, name, changedByTag }) {
-  const logCh = getLogChannel(discordClient, guildId);
+  const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
   const embed = new EmbedBuilder()

@@ -9,9 +9,9 @@ const db = require('../database/db');
 const DEFAULT_DESCRIPTION =
   'Benötigst du Hilfe oder hast ein Anliegen?\nWähle eine Kategorie aus dem Menü und erstelle ein Ticket.';
 
-function buildPanelPayload(guild) {
-  const guildCfg    = db.getGuild.get(guild.id);
-  const categories  = db.getCategories.all(guild.id);
+async function buildPanelPayload(guild) {
+  const guildCfg   = await db.getGuild(guild.id);
+  const categories = await db.getCategories(guild.id);
 
   const embed = new EmbedBuilder()
     .setTitle('🎫 Support-Tickets')

@@ -23,20 +23,20 @@ module.exports = {
 
   async execute(interaction) {
     const { guild } = interaction;
-    db.ensureGuildWithDefaults(guild.id);
+    await db.ensureGuildWithDefaults(guild.id);
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'senden') {
       const channel = interaction.options.getChannel('kanal');
-      const payload = panelBuilder.buildPanelPayload(guild);
+      const payload = await panelBuilder.buildPanelPayload(guild);
       const msg     = await channel.send(payload);
 
-      db.updateGuild(guild.id, { panel_channel_id: channel.id, panel_message_id: msg.id });
+      await db.updateGuild(guild.id, { panel_channel_id: channel.id, panel_message_id: msg.id });
       return interaction.reply({ content: `✅ Panel in ${channel} gesendet.`, ephemeral: true });
     }
 
     // sub === 'aktualisieren'
-    const guildCfg = db.getGuild.get(guild.id);
+    const guildCfg = await db.getGuild(guild.id);
     if (!guildCfg?.panel_channel_id || !guildCfg?.panel_message_id) {
       return interaction.reply({
         content: '❌ Es wurde noch kein Panel gesendet. Nutze `/panel senden`.',
@@ -47,7 +47,7 @@ module.exports = {
     try {
       const channel = await guild.channels.fetch(guildCfg.panel_channel_id);
       const message = await channel.messages.fetch(guildCfg.panel_message_id);
-      await message.edit(panelBuilder.buildPanelPayload(guild));
+      await message.edit(await panelBuilder.buildPanelPayload(guild));
       return interaction.reply({ content: '✅ Panel aktualisiert.', ephemeral: true });
     } catch (err) {
       return interaction.reply({

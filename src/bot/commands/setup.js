@@ -47,7 +47,7 @@ module.exports = {
 
     const { guild, options } = interaction;
 
-    db.ensureGuildWithDefaults(guild.id);
+    await db.ensureGuildWithDefaults(guild.id);
 
     const updates    = {};
     const category   = options.getChannel('kategorie');
@@ -63,20 +63,20 @@ module.exports = {
     if (panelDesc)  updates.panel_description   = panelDesc;
     if (panelImage) updates.panel_image_url     = panelImage;
 
-    if (Object.keys(updates).length > 0) db.updateGuild(guild.id, updates);
+    if (Object.keys(updates).length > 0) await db.updateGuild(guild.id, updates);
 
     // Post panel if panel channel given
     if (panelChan) {
-      const payload = panelBuilder.buildPanelPayload(guild);
+      const payload = await panelBuilder.buildPanelPayload(guild);
       const msg     = await panelChan.send(payload);
 
-      db.updateGuild(guild.id, {
+      await db.updateGuild(guild.id, {
         panel_channel_id:  panelChan.id,
         panel_message_id:  msg.id,
       });
     }
 
-    const guildCfg = db.getGuild.get(guild.id);
+    const guildCfg = await db.getGuild(guild.id);
 
     const status = new EmbedBuilder()
       .setTitle('✅ Setup abgeschlossen')

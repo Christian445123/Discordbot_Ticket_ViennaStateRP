@@ -22,7 +22,7 @@ async function closeTicket(interaction, ticket) {
   const { guild } = interaction;
   const closedBy = interaction.user;
 
-  db.closeTicket.run({
+  await db.closeTicket({
     id:             ticket.id,
     closed_by_id:   closedBy.id,
     closed_by_name: closedBy.tag,
@@ -61,10 +61,10 @@ async function closeTicket(interaction, ticket) {
 async function createTicketChannel(interaction, category, subject) {
   const { guild, user } = interaction;
 
-  db.ensureGuildWithDefaults(guild.id);
+  await db.ensureGuildWithDefaults(guild.id);
 
   // Prevent duplicate open ticket
-  const existing = db.getOpenTicketByUser.get(guild.id, user.id);
+  const existing = await db.getOpenTicketByUser(guild.id, user.id);
   if (existing) {
     const ch = guild.channels.cache.get(existing.channel_id);
     const ref = ch ? `${ch}` : `#${String(existing.ticket_number).padStart(4, '0')}`;
@@ -74,12 +74,12 @@ async function createTicketChannel(interaction, category, subject) {
     });
   }
 
-  db.incrementTicketCount.run(guild.id);
-  const { ticket_count } = db.getTicketCount.get(guild.id);
-  const guildCfg = db.getGuild.get(guild.id);
+  await db.incrementTicketCount(guild.id);
+  const { ticket_count } = await db.getTicketCount(guild.id);
+  const guildCfg = await db.getGuild(guild.id);
 
   // Insert ticket record (channel_id set after channel creation)
-  const result = db.createTicket.run({
+  const result = await db.createTicket({
     ticket_number: ticket_count,
     guild_id:      guild.id,
     channel_id:    null,
@@ -90,7 +90,7 @@ async function createTicketChannel(interaction, category, subject) {
   });
   const ticketId = result.lastInsertRowid;
 
-  const categoryCfg = db.getCategoryByName.get(guild.id, category);
+  const categoryCfg = await db.getCategoryByName(guild.id, category);
 
   // Build permission overwrites
   const overwrites = [
@@ -120,7 +120,7 @@ async function createTicketChannel(interaction, category, subject) {
     topic:             `Ticket von ${user.tag} | Kategorie: ${category} | ID: ${ticketId}`,
   });
 
-  db.updateTicketChannel.run(channel.id, ticketId);
+  await db.updateTicketChannel(channel.id, ticketId);
 
   // Welcome embed + close button
   const embed = new EmbedBuilder()
@@ -249,7 +249,7 @@ module.exports = {
 
     // ── Button: close ticket (initial request) ──────────────────────────────
     if (interaction.isButton() && interaction.customId === 'close_ticket') {
-      const ticket = db.getTicketByChannel.get(interaction.channel.id);
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
       if (!ticket || ticket.status === 'closed') {
         return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
       }
@@ -280,7 +280,7 @@ module.exports = {
     // ── Button: confirm close ───────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId.startsWith('confirm_close_')) {
       const ticketId = parseInt(interaction.customId.replace('confirm_close_', ''), 10);
-      const ticket   = db.getTicketById.get(ticketId);
+      const ticket   = await db.getTicketById(ticketId);
       if (!ticket || ticket.status === 'closed') {
         return interaction.reply({ content: '❌ Ticket bereits geschlossen.', ephemeral: true });
       }

@@ -16,7 +16,7 @@ module.exports = {
 
   async autocomplete(interaction) {
     const focused    = interaction.options.getFocused().toLowerCase();
-    const categories = db.getCategories.all(interaction.guild.id);
+    const categories = await db.getCategories(interaction.guild.id);
     const choices = categories
       .filter(c => c.name.toLowerCase().includes(focused))
       .slice(0, 25)
@@ -25,12 +25,12 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const ticket = db.getTicketByChannel.get(interaction.channel.id);
+    const ticket = await db.getTicketByChannel(interaction.channel.id);
     if (!ticket) {
       return interaction.reply({ content: '❌ Dieser Kanal ist kein Ticket.', ephemeral: true });
     }
 
-    const guildCfg = db.getGuild.get(interaction.guild.id);
+    const guildCfg = await db.getGuild(interaction.guild.id);
     const isAdmin  = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
     const isStaff  = isAdmin
       || (guildCfg?.staff_role_id && interaction.member.roles.cache.has(guildCfg.staff_role_id));
@@ -38,8 +38,9 @@ module.exports = {
       return interaction.reply({ content: '❌ Nur Staff kann die Kategorie ändern.', ephemeral: true });
     }
 
-    const newCategory = interaction.options.getString('neue_kategorie', true);
-    if (!db.getCategoryByName.get(interaction.guild.id, newCategory)) {
+    const newCategory    = interaction.options.getString('neue_kategorie', true);
+    const newCategoryCfg = await db.getCategoryByName(interaction.guild.id, newCategory);
+    if (!newCategoryCfg) {
       return interaction.reply({ content: `❌ Kategorie **${newCategory}** ist nicht konfiguriert.`, ephemeral: true });
     }
 
@@ -48,7 +49,7 @@ module.exports = {
       return interaction.reply({ content: 'ℹ️ Das Ticket hat bereits diese Kategorie.', ephemeral: true });
     }
 
-    db.updateTicketCategory.run(newCategory, ticket.id);
+    await db.updateTicketCategory(newCategory, ticket.id);
 
     try {
       await interaction.channel.setTopic(

@@ -68,7 +68,7 @@ module.exports = {
 
   async autocomplete(interaction) {
     const focused    = interaction.options.getFocused().toLowerCase();
-    const categories = db.getCategories.all(interaction.guild.id);
+    const categories = await db.getCategories(interaction.guild.id);
     const choices = categories
       .filter(c => c.name.toLowerCase().includes(focused))
       .slice(0, 25)
@@ -79,11 +79,11 @@ module.exports = {
   async execute(interaction) {
     const sub     = interaction.options.getSubcommand();
     const guildId = interaction.guild.id;
-    db.ensureGuildWithDefaults(guildId);
+    await db.ensureGuildWithDefaults(guildId);
 
     if (sub === 'hinzufuegen') {
       const name = interaction.options.getString('name', true).trim();
-      if (db.getCategoryByName.get(guildId, name)) {
+      if (await db.getCategoryByName(guildId, name)) {
         return interaction.reply({ content: `❌ Kategorie **${name}** existiert bereits.`, ephemeral: true });
       }
 
@@ -92,9 +92,9 @@ module.exports = {
 
       const autoImKanalOpt = interaction.options.getBoolean('auto_im_kanal');
       const autoImKanal    = autoImKanalOpt === null ? true : autoImKanalOpt;
-      const { count }      = db.getCategoryCount.get(guildId);
+      const { count }      = await db.getCategoryCount(guildId);
 
-      db.insertCategory.run({
+      await db.insertCategory({
         guild_id:              guildId,
         name,
         emoji:                 interaction.options.getString('emoji') || '🎫',
@@ -107,7 +107,8 @@ module.exports = {
         sort_order:            count,
       });
 
-      await interaction.reply({ embeds: [categoryEmbed('✅ Kategorie hinzugefügt', db.getCategoryByName.get(guildId, name))] });
+      const created = await db.getCategoryByName(guildId, name);
+      await interaction.reply({ embeds: [categoryEmbed('✅ Kategorie hinzugefügt', created)] });
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'hinzugefügt', name, changedByTag: interaction.user.tag,
       });
@@ -116,7 +117,7 @@ module.exports = {
 
     if (sub === 'bearbeiten') {
       const name     = interaction.options.getString('name', true);
-      const existing = db.getCategoryByName.get(guildId, name);
+      const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return interaction.reply({ content: `❌ Kategorie **${name}** nicht gefunden.`, ephemeral: true });
 
       const ping = resolvePingTarget(interaction);
@@ -140,8 +141,9 @@ module.exports = {
         return interaction.reply({ content: 'ℹ️ Keine Änderungen angegeben.', ephemeral: true });
       }
 
-      db.updateCategory(guildId, name, updates);
-      await interaction.reply({ embeds: [categoryEmbed('✅ Kategorie aktualisiert', db.getCategoryByName.get(guildId, name))] });
+      await db.updateCategory(guildId, name, updates);
+      const updated = await db.getCategoryByName(guildId, name);
+      await interaction.reply({ embeds: [categoryEmbed('✅ Kategorie aktualisiert', updated)] });
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'bearbeitet', name, changedByTag: interaction.user.tag,
       });
@@ -150,15 +152,15 @@ module.exports = {
 
     if (sub === 'entfernen') {
       const name     = interaction.options.getString('name', true);
-      const existing = db.getCategoryByName.get(guildId, name);
+      const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return interaction.reply({ content: `❌ Kategorie **${name}** nicht gefunden.`, ephemeral: true });
 
-      const { count } = db.getCategoryCount.get(guildId);
+      const { count } = await db.getCategoryCount(guildId);
       if (count <= 1) {
         return interaction.reply({ content: '❌ Die letzte verbleibende Kategorie kann nicht gelöscht werden.', ephemeral: true });
       }
 
-      db.deleteCategory.run(guildId, name);
+      await db.deleteCategory(guildId, name);
       await interaction.reply({ content: `🗑️ Kategorie **${name}** entfernt.` });
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'entfernt', name, changedByTag: interaction.user.tag,
@@ -167,7 +169,7 @@ module.exports = {
     }
 
     // sub === 'liste'
-    const categories = db.getCategories.all(guildId);
+    const categories = await db.getCategories(guildId);
     const embed = new EmbedBuilder().setTitle('🏷️ Konfigurierte Kategorien').setColor(0x5865F2);
 
     if (!categories.length) {

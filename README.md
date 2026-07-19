@@ -24,6 +24,7 @@ Ein vollständiges Ticket-System für Discord mit Web-Dashboard.
 ## Voraussetzungen
 
 - Node.js 18+
+- Eine erreichbare MySQL-Datenbank (5.7+/8.0, `ticketbotDB` o.ä.) – Tabellen werden automatisch angelegt
 - Discord-Applikation (https://discord.com/developers/applications)
 
 ## Einrichtung
@@ -59,6 +60,11 @@ cp .env.example .env
 | `DISCORD_CLIENT_ID`     | Application ID / Client ID                            |
 | `DISCORD_CLIENT_SECRET` | OAuth2 Client Secret                                  |
 | `DISCORD_GUILD_ID`      | ID deines Discord-Servers                             |
+| `DB_HOST`               | MySQL-Host (z.B. `127.0.0.1`)                         |
+| `DB_PORT`               | MySQL-Port (Standard: `3306`)                         |
+| `DB_NAME`                | Datenbankname                                        |
+| `DB_USER`                | Datenbank-Benutzer                                   |
+| `DB_PASSWORD`            | Datenbank-Passwort                                   |
 | `PORT`                  | Web-Port (Standard: 3000)                             |
 | `BASE_URL`              | Öffentliche URL des Web-Servers (z.B. http://localhost:3000) |
 | `SESSION_SECRET`        | Zufälliger String (mind. 32 Zeichen)                  |
@@ -76,6 +82,31 @@ npm start
 # oder für Entwicklung mit Auto-Reload:
 npm run dev
 ```
+
+## Datenbank (MySQL)
+
+Die Datenbank liegt in MySQL statt in einer lokalen Datei. Beim Start verbindet sich der Bot mit
+den `DB_*`-Werten aus `.env` und legt fehlende Tabellen automatisch an (`CREATE TABLE IF NOT
+EXISTS`) – kein manuelles Einrichten des Schemas nötig, nur die Datenbank selbst und der Benutzer
+müssen bereits existieren (inkl. Rechten für `CREATE`/`ALTER`/`SELECT`/`INSERT`/`UPDATE`/`DELETE`).
+
+Schlägt die Verbindung beim Start fehl (falsches Passwort, Server nicht erreichbar, fehlende
+Rechte), wird das klar geloggt und der Prozess beendet sich, statt mit kaputter DB-Anbindung
+weiterzulaufen.
+
+### Alte SQLite-Daten übernehmen (optional)
+
+Falls vorher eine ältere Version dieses Bots mit lokaler SQLite-Datenbank (`data/tickets.db`)
+lief und die Historie übernommen werden soll:
+
+```bash
+npm install                        # installiert better-sqlite3 als devDependency
+npm run migrate:sqlite-to-mysql
+```
+
+Das Skript legt das MySQL-Schema an (falls nötig) und kopiert Guilds, Kategorien, Tickets,
+Nachrichten und Notizen 1:1 inklusive IDs hinüber. Ohne vorhandene `data/tickets.db` tut es
+nichts – für einen komplett neuen Server also einfach überspringen.
 
 ## Erstkonfiguration auf dem Server
 
@@ -179,11 +210,13 @@ geschrieben werden – nicht nur gelesen:
 ## Projektstruktur
 
 ```
-├── index.js                    # Einstiegspunkt (Bot + Web-Server)
+├── index.js                    # Einstiegspunkt (Bot + Web-Server, verbindet zuerst zur DB)
 ├── ecosystem.config.js         # PM2-Konfiguration (Produktion)
+├── scripts/
+│   └── migrate-sqlite-to-mysql.js  # Optionale Einmal-Migration alter SQLite-Daten
 ├── src/
 │   ├── database/
-│   │   └── db.js               # SQLite-Datenbank (better-sqlite3)
+│   │   └── db.js               # MySQL-Anbindung (mysql2) + automatische Schema-Erstellung
 │   ├── bot/
 │   │   ├── bot.js              # Discord-Client mit Command/Event-Loader
 │   │   ├── deploy-commands.js  # Slash-Command Registrierung
@@ -216,7 +249,7 @@ geschrieben werden – nicht nur gelesen:
 │               ├── dashboard.js
 │               └── ticket.js
 └── data/
-    └── tickets.db              # SQLite-Datenbank (auto-erstellt)
+    └── tickets.db              # nur relevant für scripts/migrate-sqlite-to-mysql.js (alte Installationen)
 ```
 
 ## Logging

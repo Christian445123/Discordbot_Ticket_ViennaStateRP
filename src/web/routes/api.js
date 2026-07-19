@@ -34,7 +34,7 @@ const MAX_MESSAGE_LENGTH = 1800; // leaves headroom for the "**Name** (Quelle):\
 
 async function checkStaff(discordClient, guildId, userId) {
   try {
-    const guildCfg = db.getGuild.get(guildId);
+    const guildCfg = await db.getGuild(guildId);
     if (!guildCfg?.staff_role_id) return false;
     if (!discordClient.guilds.cache.has(guildId)) return false;
     const guild  = discordClient.guilds.cache.get(guildId);
@@ -115,30 +115,30 @@ module.exports = function apiRoutes(discordClient) {
   });
 
   // ── Categories (for the create-ticket & category-change dropdowns) ─────────
-  router.get('/categories', requireAuth, (req, res) => {
+  router.get('/categories', requireAuth, async (req, res) => {
     const guildId = process.env.DISCORD_GUILD_ID;
-    db.ensureGuildWithDefaults(guildId);
-    const categories = db.getCategories.all(guildId).map(c => ({ name: c.name, emoji: c.emoji }));
-    res.json(categories);
+    await db.ensureGuildWithDefaults(guildId);
+    const rows = await db.getCategories(guildId);
+    res.json(rows.map(c => ({ name: c.name, emoji: c.emoji })));
   });
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-  router.get('/stats', requireAuth, (req, res) => {
+  router.get('/stats', requireAuth, async (req, res) => {
     const guildId = process.env.DISCORD_GUILD_ID;
-    db.ensureGuildWithDefaults(guildId);
-    res.json(db.getStats.get(guildId));
+    await db.ensureGuildWithDefaults(guildId);
+    res.json(await db.getStats(guildId));
   });
 
   // ── List tickets ──────────────────────────────────────────────────────────
   router.get('/tickets', requireAuth, async (req, res) => {
     const guildId = process.env.DISCORD_GUILD_ID;
     const userId  = req.user.id;
-    db.ensureGuildWithDefaults(guildId);
+    await db.ensureGuildWithDefaults(guildId);
     const isStaff = await checkStaff(discordClient, guildId, userId);
     const own     = req.query.own === 'true';
     const tickets = (isStaff && !own)
-      ? db.getTicketsByGuild.all(guildId)
-      : db.getTicketsByUser.all(guildId, userId);
+      ? await db.getTicketsByGuild(guildId)
+      : await db.getTicketsByUser(guildId, userId);
     res.json({ tickets, isStaff });
   });
 
@@ -146,7 +146,7 @@ module.exports = function apiRoutes(discordClient) {
   router.get('/tickets/:id', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const guildId = process.env.DISCORD_GUILD_ID;
@@ -154,7 +154,8 @@ module.exports = function apiRoutes(discordClient) {
     const isStaff = await checkStaff(discordClient, guildId, userId);
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
 
-    const messages = db.getMessages.all(ticketId).map(m => ({
+    const rawMessages = await db.getMessages(ticketId);
+    const messages = rawMessages.map(m => ({
       ...m, attachments: JSON.parse(m.attachments || '[]'),
     }));
     res.json({ ticket, messages, isStaff });
@@ -164,7 +165,7 @@ module.exports = function apiRoutes(discordClient) {
   router.post('/tickets/:id/messages', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
     if (ticket.status === 'closed') return res.status(400).json({ error: 'Ticket ist bereits geschlossen' });
 
@@ -180,7 +181,7 @@ module.exports = function apiRoutes(discordClient) {
 
     const avatarUrl = buildAvatarUrl(req.user);
 
-    db.addMessage.run({
+    await db.addMessage({
       ticket_id:   ticketId,
       user_id:     userId,
       username:    req.user.username,
@@ -214,12 +215,13 @@ module.exports = function apiRoutes(discordClient) {
   router.post('/tickets/:id/category', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const { category } = req.body;
     const guildId = process.env.DISCORD_GUILD_ID;
-    if (!db.getCategoryByName.get(guildId, category)) return res.status(400).json({ error: 'Ungültige Kategorie' });
+    const categoryExists = await db.getCategoryByName(guildId, category);
+    if (!categoryExists) return res.status(400).json({ error: 'Ungültige Kategorie' });
 
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann die Kategorie ändern' });
@@ -227,7 +229,7 @@ module.exports = function apiRoutes(discordClient) {
     if (category === ticket.category) return res.json({ success: true });
 
     const oldCategory = ticket.category;
-    db.updateTicketCategory.run(category, ticketId);
+    await db.updateTicketCategory(category, ticketId);
 
     if (ticket.channel_id) {
       try {
@@ -265,21 +267,22 @@ module.exports = function apiRoutes(discordClient) {
     const guildId  = process.env.DISCORD_GUILD_ID;
     const userId   = req.user.id;
     const username = req.user.username;
-    db.ensureGuildWithDefaults(guildId);
+    await db.ensureGuildWithDefaults(guildId);
 
-    if (!db.getCategoryByName.get(guildId, category))
+    const categoryExists = await db.getCategoryByName(guildId, category);
+    if (!categoryExists)
       return res.status(400).json({ error: 'Ungültige Kategorie' });
 
-    const existing = db.getOpenTicketByUser.get(guildId, userId);
+    const existing = await db.getOpenTicketByUser(guildId, userId);
     if (existing) return res.status(400).json({ error: 'Du hast bereits ein offenes Ticket', ticketId: existing.id });
 
-    db.incrementTicketCount.run(guildId);
-    const { ticket_count } = db.getTicketCount.get(guildId);
+    await db.incrementTicketCount(guildId);
+    const { ticket_count } = await db.getTicketCount(guildId);
     const fullSubject = description?.trim()
       ? `${subject.trim()}\n\n${description.trim()}`
       : subject.trim();
 
-    const result = db.createTicket.run({
+    const result = await db.createTicket({
       ticket_number: ticket_count, guild_id: guildId, channel_id: null,
       user_id: userId, username, category, subject: fullSubject,
     });
@@ -290,8 +293,8 @@ module.exports = function apiRoutes(discordClient) {
       try {
         const { PermissionFlagsBits, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
         const guild       = discordClient.guilds.cache.get(guildId);
-        const guildCfg    = db.getGuild.get(guildId);
-        const categoryCfg = db.getCategoryByName.get(guildId, category);
+        const guildCfg    = await db.getGuild(guildId);
+        const categoryCfg = await db.getCategoryByName(guildId, category);
 
         const overwrites = [
           { id: guild.id,            deny:  [PermissionFlagsBits.ViewChannel] },
@@ -314,7 +317,7 @@ module.exports = function apiRoutes(discordClient) {
           permissionOverwrites: overwrites,
           topic: `Ticket von ${username} | ${category} | ID: ${ticketId} | 🌐 Web`,
         });
-        db.updateTicketChannel.run(channel.id, ticketId);
+        await db.updateTicketChannel(channel.id, ticketId);
 
         const embed = new EmbedBuilder()
           .setTitle(`🎫 Ticket #${String(ticket_count).padStart(4, '0')}`)
@@ -358,7 +361,7 @@ module.exports = function apiRoutes(discordClient) {
   router.post('/tickets/:id/close', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket)                    return res.status(404).json({ error: 'Ticket nicht gefunden' });
     if (ticket.status === 'closed') return res.status(400).json({ error: 'Bereits geschlossen' });
 
@@ -368,7 +371,7 @@ module.exports = function apiRoutes(discordClient) {
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
 
     const closedByTag = `${req.user.username} (Web)`;
-    db.closeTicket.run({ id: ticketId, closed_by_id: userId, closed_by_name: closedByTag });
+    await db.closeTicket({ id: ticketId, closed_by_id: userId, closed_by_name: closedByTag });
 
     await ticketLog.logTicketClosed(discordClient, guildId, {
       ticket, closedByTag, source: '🌐 Web',
@@ -394,14 +397,15 @@ module.exports = function apiRoutes(discordClient) {
   router.get('/tickets/:id/transcript', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const guildId = process.env.DISCORD_GUILD_ID;
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
 
-    const messages = db.getMessages.all(ticketId).map(m => ({
+    const rawMessages = await db.getMessages(ticketId);
+    const messages = rawMessages.map(m => ({
       ...m, attachments: JSON.parse(m.attachments || '[]'),
     }));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -412,20 +416,20 @@ module.exports = function apiRoutes(discordClient) {
   router.get('/tickets/:id/notes', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket  = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const guildId = process.env.DISCORD_GUILD_ID;
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
 
-    res.json(db.getNotes.all(ticketId));
+    res.json(await db.getNotes(ticketId));
   });
 
   router.post('/tickets/:id/notes', requireAuth, async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = db.getTicketById.get(ticketId);
+    const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
@@ -435,7 +439,7 @@ module.exports = function apiRoutes(discordClient) {
     if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann Notizen hinzufügen' });
 
     const noteContent = content.trim();
-    db.addNote.run(ticketId, req.user.id, req.user.username, noteContent);
+    await db.addNote(ticketId, req.user.id, req.user.username, noteContent);
 
     await ticketLog.logNoteAdded(discordClient, guildId, {
       ticket, authorTag: req.user.username, content: noteContent,

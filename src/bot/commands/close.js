@@ -16,7 +16,7 @@ module.exports = {
     .setDescription('Schließt das aktuelle Ticket'),
 
   async execute(interaction) {
-    const ticket = db.getTicketByChannel.get(interaction.channel.id);
+    const ticket = await db.getTicketByChannel(interaction.channel.id);
 
     if (!ticket) {
       return interaction.reply({ content: '❌ Dieser Kanal ist kein Ticket.', ephemeral: true });

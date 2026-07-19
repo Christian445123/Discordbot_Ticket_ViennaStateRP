@@ -16,7 +16,7 @@ function buildPingMention(categoryCfg) {
 }
 
 async function applyCategoryExtras(discordClient, guildId, { categoryName, channel, userId }) {
-  const categoryCfg = db.getCategoryByName.get(guildId, categoryName);
+  const categoryCfg = await db.getCategoryByName(guildId, categoryName);
   if (!categoryCfg?.auto_message) return;
 
   if (categoryCfg.auto_message_channel && channel) {

@@ -2,25 +2,37 @@
 
 require('dotenv').config();
 
+const db                  = require('./src/database/db');
 const client              = require('./src/bot/bot');
-const { createWebServer }  = require('./src/web/server');
-const logger               = require('./src/utils/logger');
+const { createWebServer } = require('./src/web/server');
+const logger              = require('./src/utils/logger');
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
-// ── Start web server ─────────────────────────────────────────────────────────
-// Pass the Discord client so API routes can interact with Discord
-const app = createWebServer(client);
+(async () => {
+  // ── Connect to the database & auto-create the schema ────────────────────────
+  try {
+    await db.init();
+    logger.info('✅ Datenbankverbindung hergestellt & Schema geprüft.');
+  } catch (err) {
+    logger.error('❌ Datenbankverbindung fehlgeschlagen:', err.message);
+    process.exit(1);
+  }
 
-app.listen(PORT, () => {
-  logger.info(`🌐 Web-Interface läuft auf http://localhost:${PORT}`);
-});
+  // ── Start web server ────────────────────────────────────────────────────────
+  // Pass the Discord client so API routes can interact with Discord
+  const app = createWebServer(client);
 
-// ── Start Discord bot ────────────────────────────────────────────────────────
-client.login(process.env.DISCORD_TOKEN).catch(err => {
-  logger.error('❌ Bot-Login fehlgeschlagen:', err.message);
-  process.exit(1);
-});
+  app.listen(PORT, () => {
+    logger.info(`🌐 Web-Interface läuft auf http://localhost:${PORT}`);
+  });
+
+  // ── Start Discord bot ───────────────────────────────────────────────────────
+  client.login(process.env.DISCORD_TOKEN).catch(err => {
+    logger.error('❌ Bot-Login fehlgeschlagen:', err.message);
+    process.exit(1);
+  });
+})();
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 process.on('SIGINT',  () => { client.destroy(); process.exit(0); });
