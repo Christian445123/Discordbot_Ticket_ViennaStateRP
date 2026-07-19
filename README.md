@@ -17,6 +17,8 @@ Ein vollständiges Ticket-System für Discord mit Web-Dashboard.
   - Login mit Discord OAuth2
   - Dashboard mit Statistiken & Suchfunktion
   - Ticket-Detail-Ansicht mit Nachrichtenverlauf
+  - Direkt aus dem Browser in ein Ticket schreiben – die Nachricht landet sofort auch im
+    Discord-Kanal, und Antworten aus Discord erscheinen automatisch im Web (Live-Sync alle 5s)
   - Tickets über Browser schließen (Staff & Ticket-Ersteller)
 
 ## Voraussetzungen
@@ -97,6 +99,28 @@ Sobald der Bot online ist, verwende `/setup` auf deinem Server:
 - Bewerbung
 - Beschwerde
 - Allgemein
+
+## Web-Chat (Nachrichten aus dem Browser)
+
+Auf der Ticket-Detailseite (`/ticket/:id`) kann direkt aus dem Browser in ein offenes Ticket
+geschrieben werden – nicht nur gelesen:
+
+- **Wer darf schreiben:** Staff (Rolle aus `/setup`) sowie der Ticket-Ersteller selbst, solange
+  das Ticket offen ist. Bei einem geschlossenen Ticket wird der Schreibbereich durch den
+  "Ticket ist geschlossen"-Hinweis ersetzt.
+- **Bedienung:** `Enter` sendet die Nachricht, `Umschalt+Enter` fügt eine neue Zeile ein
+  (max. 1800 Zeichen).
+- **Synchronisierung mit Discord:** Jede Web-Nachricht wird sofort auch in den zugehörigen
+  Ticket-Kanal auf Discord gepostet (als Bot-Nachricht mit Namen des Absenders und Kennzeichnung
+  🌐 Web bzw. 🛠️ Staff), und in der Datenbank gespeichert. Umgekehrt holt die Ticket-Seite alle
+  5 Sekunden neue Nachrichten (inkl. Antworten direkt aus Discord) nach, solange der
+  "Nachrichten"-Tab aktiv und der Browser-Tab sichtbar ist – ganz ohne manuelles Neuladen.
+- **Sicherheit:** Web-Nachrichten werden beim Senden an Discord mit `allowedMentions: { parse: [] }`
+  verschickt, sodass über das Web-Formular niemals `@everyone`, `@here`, Rollen oder einzelne
+  Nutzer im Ticket-Kanal gepingt werden können.
+- **Kein Nutzer-Impersonating:** Da Discord-Bots keine Nachrichten "als" ein anderes Mitglied
+  senden können (ohne Webhooks), erscheinen Web-Nachrichten im Kanal als Bot-Nachricht mit dem
+  Namen des Absenders im Text (`**Name** (🌐 Web): …`) statt mit dessen echtem Profilbild/Namen.
 
 ## Projektstruktur
 

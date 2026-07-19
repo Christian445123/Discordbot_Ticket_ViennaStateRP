@@ -23,6 +23,14 @@ function escHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function buildAvatarUrl(user) {
+  return user.avatar
+    ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+    : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
+}
+
+const MAX_MESSAGE_LENGTH = 1800; // leaves headroom for the "**Name** (Quelle):\n" prefix within Discord's 2000-char limit
+
 async function checkStaff(discordClient, guildId, userId) {
   try {
     const guildCfg = db.getGuild.get(guildId);
@@ -95,15 +103,13 @@ module.exports = function apiRoutes(discordClient) {
 
   // ── Current user ─────────────────────────────────────────────────────────
   router.get('/me', requireAuth, async (req, res) => {
-    const { id, username, discriminator, avatar, guilds } = req.user;
+    const { id, username, discriminator, guilds } = req.user;
     const guildId   = process.env.DISCORD_GUILD_ID;
     const isInGuild = guilds?.some(g => g.id === guildId);
     const isStaff   = await checkStaff(discordClient, guildId, id);
     res.json({
       id, username, discriminator, isInGuild, isStaff,
-      avatar: avatar
-        ? `https://cdn.discordapp.com/avatars/${id}/${avatar}.png`
-        : `https://cdn.discordapp.com/embed/avatars/${parseInt(discriminator || '0', 10) % 5}.png`,
+      avatar: buildAvatarUrl(req.user),
     });
   });
 
@@ -143,6 +149,56 @@ module.exports = function apiRoutes(discordClient) {
       ...m, attachments: JSON.parse(m.attachments || '[]'),
     }));
     res.json({ ticket, messages, isStaff });
+  });
+
+  // ── Send message into a ticket from the web ─────────────────────────────────
+  router.post('/tickets/:id/messages', requireAuth, async (req, res) => {
+    const ticketId = parseInt(req.params.id, 10);
+    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+    const ticket = db.getTicketById.get(ticketId);
+    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+    if (ticket.status === 'closed') return res.status(400).json({ error: 'Ticket ist bereits geschlossen' });
+
+    const content = req.body.content?.trim();
+    if (!content) return res.status(400).json({ error: 'Nachricht darf nicht leer sein' });
+    if (content.length > MAX_MESSAGE_LENGTH)
+      return res.status(400).json({ error: `Nachricht zu lang (max. ${MAX_MESSAGE_LENGTH} Zeichen)` });
+
+    const guildId = process.env.DISCORD_GUILD_ID;
+    const userId  = req.user.id;
+    const isStaff = await checkStaff(discordClient, guildId, userId);
+    if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
+
+    const avatarUrl = buildAvatarUrl(req.user);
+
+    db.addMessage.run({
+      ticket_id:   ticketId,
+      user_id:     userId,
+      username:    req.user.username,
+      avatar_url:  avatarUrl,
+      content,
+      attachments: '[]',
+    });
+
+    // Relay into the Discord channel so both sides stay in sync. Sent as the bot
+    // (impersonating a real user isn't possible without webhooks) with the
+    // author named in the text, and mentions stripped so a ticket message can
+    // never be used to ping @everyone/@here/roles/users in the channel.
+    if (ticket.channel_id) {
+      try {
+        const channel = await discordClient.channels.fetch(ticket.channel_id).catch(() => null);
+        if (channel) {
+          const label  = isStaff ? '🛠️ Staff' : '🌐 Web';
+          let relayed  = `**${req.user.username}** (${label}):\n${content}`;
+          if (relayed.length > 2000) relayed = `${relayed.slice(0, 1997)}…`;
+          await channel.send({ content: relayed, allowedMentions: { parse: [] } });
+        }
+      } catch (err) {
+        logger.error('Web-Nachricht konnte nicht an Discord-Kanal gesendet werden:', err.message);
+      }
+    }
+
+    res.json({ success: true });
   });
 
   // ── Create ticket from web ────────────────────────────────────────────────

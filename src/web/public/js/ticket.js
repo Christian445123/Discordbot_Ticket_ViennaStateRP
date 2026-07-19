@@ -4,6 +4,8 @@ const ticketId  = window.location.pathname.split('/').pop();
 let currentUser = null;
 let ticketData  = null;
 let activeTab   = 'messages';
+let lastMessageCount = -1;
+let pollTimer   = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function escapeHtml(str) {
@@ -77,15 +79,14 @@ function renderHeader(ticket, isStaff) {
   if (openBtn) openBtn.href = `/api/tickets/${ticketId}/transcript`;
   if (dlBtn)   { dlBtn.href = `/api/tickets/${ticketId}/transcript`; dlBtn.download = `transcript-${ticketId}.html`; }
 
-  // Close button
-  if (ticket.status === 'open' && (isStaff || currentUser.id === ticket.user_id)) {
-    document.getElementById('closeBtn').classList.remove('d-none');
-  }
-
-  // Closed notice
-  if (ticket.status === 'closed') {
-    document.getElementById('closedNotice').classList.remove('d-none');
-  }
+  // Close button, composer & closed notice — re-evaluated on every render since
+  // the ticket status can change mid-session (e.g. closed from Discord while
+  // this page is open, picked up by polling).
+  const isOpen    = ticket.status === 'open';
+  const canManage = isStaff || currentUser.id === ticket.user_id;
+  document.getElementById('closeBtn').classList.toggle('d-none', !(isOpen && canManage));
+  document.getElementById('composerWrap').classList.toggle('d-none', !(isOpen && canManage));
+  document.getElementById('closedNotice').classList.toggle('d-none', isOpen);
 
   // Staff notes tab
   if (isStaff) {
@@ -95,6 +96,7 @@ function renderHeader(ticket, isStaff) {
 
 // ── Render messages ───────────────────────────────────────────────────────────
 function renderMessages(messages) {
+  lastMessageCount = messages.length;
   const container = document.getElementById('messagesContainer');
   if (!messages.length) {
     container.innerHTML = '<p class="text-center text-muted py-4">Noch keine Nachrichten.</p>';
@@ -167,6 +169,71 @@ async function addNote() {
   } catch { alert.textContent = 'Netzwerkfehler'; }
 }
 
+// ── Send message / live updates ─────────────────────────────────────────────
+async function refreshTicket() {
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const statusChanged = ticketData?.status !== data.ticket.status;
+    ticketData = data.ticket;
+    if (statusChanged) renderHeader(data.ticket, data.isStaff);
+    if (statusChanged || data.messages.length !== lastMessageCount) renderMessages(data.messages);
+  } catch { /* ignore transient network errors while polling */ }
+}
+
+function autoResizeComposer() {
+  const el = document.getElementById('composerInput');
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+}
+
+async function sendMessage() {
+  const input  = document.getElementById('composerInput');
+  const alertEl = document.getElementById('composerAlert');
+  const btn    = document.getElementById('composerSendBtn');
+  const content = input.value.trim();
+  alertEl.textContent = '';
+  if (!content) return;
+
+  btn.disabled = true;
+  try {
+    const res  = await fetch(`/api/tickets/${ticketId}/messages`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      input.value = '';
+      autoResizeComposer();
+      await refreshTicket();
+    } else {
+      alertEl.textContent = data.error || 'Fehler beim Senden.';
+    }
+  } catch {
+    alertEl.textContent = 'Netzwerkfehler.';
+  } finally {
+    btn.disabled = false;
+    input.focus();
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (document.hidden || activeTab !== 'messages' || ticketData?.status === 'closed') return;
+    refreshTicket();
+  }, 5000);
+}
+function stopPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopPolling(); else startPolling();
+});
+
 // ── Close ticket ──────────────────────────────────────────────────────────────
 async function closeTicket() {
   if (!confirm('Ticket wirklich schließen?')) return;
@@ -189,6 +256,16 @@ async function closeTicket() {
   }
 }
 
+// ── Composer event listeners ────────────────────────────────────────────────
+const composerInput = document.getElementById('composerInput');
+composerInput?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+composerInput?.addEventListener('input', autoResizeComposer);
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   await loadUser();
@@ -202,4 +279,5 @@ async function closeTicket() {
   ticketData = data.ticket;
   renderHeader(data.ticket, data.isStaff);
   renderMessages(data.messages);
+  startPolling();
 })();

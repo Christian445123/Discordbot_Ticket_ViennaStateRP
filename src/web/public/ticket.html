@@ -68,6 +68,18 @@
           <div class="spinner-border spinner-border-sm me-2" role="status"></div>Lade Nachrichten…
         </div>
       </div>
+      <div id="composerWrap" class="card bg-dark-card border-0 d-none">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex gap-2 align-items-end">
+            <textarea id="composerInput" class="form-control" rows="1" maxlength="1800"
+                      placeholder="Nachricht schreiben… (Enter zum Senden, Umschalt+Enter für neue Zeile)"></textarea>
+            <button id="composerSendBtn" class="btn btn-primary" onclick="sendMessage()" title="Senden">
+              <i class="bi bi-send-fill"></i>
+            </button>
+          </div>
+          <div id="composerAlert" class="small text-danger mt-1"></div>
+        </div>
+      </div>
       <div id="closedNotice" class="alert alert-secondary small d-none">
         <i class="bi bi-lock-fill me-2"></i>Dieses Ticket ist geschlossen.
       </div>

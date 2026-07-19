@@ -103,8 +103,9 @@ a:focus-visible {
 .stat-card.stat-open   .stat-icon { color: var(--success); }
 .stat-card.stat-closed .stat-icon { color: var(--muted); }
 
-/* ── Search input ─────────────────────────────────────────────────────────── */
+/* ── Form controls (inputs, textareas, selects) ──────────────────────────── */
 .search-input,
+.form-control,
 .form-select {
   background-color: var(--bg-dark) !important;
   color: var(--text) !important;
@@ -112,10 +113,14 @@ a:focus-visible {
   border-radius: 6px;
 }
 .search-input:focus,
+.form-control:focus,
 .form-select:focus {
+  background-color: var(--bg-dark) !important;
+  color: var(--text) !important;
   box-shadow: 0 0 0 2px rgba(88,101,242,.4) !important;
   border-color: var(--accent) !important;
 }
+.form-control::placeholder { color: var(--muted); opacity: .8; }
 .form-select option { background-color: var(--bg-card); color: var(--text); }
 
 /* ── Table ───────────────────────────────────────────────────────────────── */
@@ -263,16 +268,11 @@ a:focus-visible {
 
 /* ── Modal overrides ─────────────────────────────────────────────────────── */
 .modal-content { border-radius: var(--radius); }
-.modal-content .form-control,
-.modal-content .form-select {
-  background-color: var(--bg-dark) !important;
-  color: var(--text) !important;
-  border-color: var(--border) !important;
-}
-.modal-content .form-control:focus,
-.modal-content .form-select:focus {
-  box-shadow: 0 0 0 2px rgba(88,101,242,.4) !important;
-  border-color: var(--accent) !important;
-}
 .modal-content textarea { resize: vertical; }
+
+/* ── Ticket message composer ─────────────────────────────────────────────── */
+#composerInput {
+  resize: none;
+  max-height: 160px;
+}
 
