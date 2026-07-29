@@ -31,6 +31,8 @@ async function requireLicenseSilent(guildId) {
 // moderation/team) would lock EVERYONE, including its own owner, out of
 // every staff-gated command.
 async function isStaff(discordClient, guildId, userId) {
+  if (isSuperAdmin(userId)) return true; // bot owner: full access everywhere, no exceptions
+
   try {
     const guild = discordClient.guilds.cache.get(guildId)
                ?? await discordClient.guilds.fetch(guildId).catch(() => null);
@@ -54,6 +56,8 @@ async function isStaff(discordClient, guildId, userId) {
 // slash commands also restrict to server admins (e.g. activating a key),
 // as opposed to isStaff() which is the ticket module's configurable role.
 async function isGuildAdmin(discordClient, guildId, userId) {
+  if (isSuperAdmin(userId)) return true; // bot owner: full access everywhere, no exceptions
+
   try {
     const guild = discordClient.guilds.cache.get(guildId)
                ?? await discordClient.guilds.fetch(guildId).catch(() => null);

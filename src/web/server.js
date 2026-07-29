@@ -8,6 +8,7 @@ const path     = require('path');
 const authRoutes   = require('./routes/auth');
 const moduleLoader = require('../core/moduleLoader');
 const guildContext = require('./guildContext');
+const guards       = require('../core/guards');
 
 function createWebServer(discordClient) {
   const app = express();
@@ -46,8 +47,13 @@ function createWebServer(discordClient) {
 
   // Guilds the logged-in user and the bot have in common — powers the
   // dashboard's guild switcher. Cross-cutting, so it lives here rather than
-  // in any single module.
+  // in any single module. Bot owners (SUPER_ADMIN_IDS) see every guild the
+  // bot is in, not just ones they personally happen to be a member of —
+  // "full access to everything" includes guilds they haven't joined.
   apiRouter.get('/guilds', (req, res) => {
+    if (guards.isSuperAdmin(req.user.id)) {
+      return res.json(discordClient.guilds.cache.map(g => ({ id: g.id, name: g.name })));
+    }
     const botGuildIds = new Set(discordClient.guilds.cache.map(g => g.id));
     const guilds = (req.user.guilds ?? [])
       .filter(g => botGuildIds.has(g.id))

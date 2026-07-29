@@ -25,6 +25,7 @@ function resolveGuildId(req, res, next) {
 
 async function requireLicense(req, res, next) {
   if (UNGATED_PREFIXES.some(p => req.path === p || req.path.startsWith(`${p}/`))) return next();
+  if (guards.isSuperAdmin(req.user.id)) return next(); // bot owner: full access everywhere
 
   if (!req.guildId) return res.status(400).json({ error: 'Keine Guild ausgewählt' });
 

@@ -25,7 +25,8 @@ function register(client) {
       const commandName = (interaction.isChatInputCommand() || interaction.isAutocomplete())
         ? interaction.commandName
         : null;
-      const bypassLicense = Boolean(commandName && coreCommandNames.has(commandName));
+      const bypassLicense = Boolean(commandName && coreCommandNames.has(commandName))
+        || guards.isSuperAdmin(interaction.user.id); // bot owner: full access everywhere
 
       if (interaction.guildId && !bypassLicense) {
         const valid = await guards.requireLicenseSilent(interaction.guildId);

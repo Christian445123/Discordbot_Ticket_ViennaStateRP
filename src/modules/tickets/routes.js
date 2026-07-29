@@ -13,6 +13,7 @@ function requireAuth(req, res, next) {
 }
 
 function requireGuildMember(req, res, next) {
+  if (guards.isSuperAdmin(req.user.id)) return next(); // bot owner: full access everywhere
   const guildId   = req.guildId;
   const isInGuild = req.user.guilds?.some(g => g.id === guildId);
   if (!isInGuild) return res.status(403).json({ error: 'Du bist kein Mitglied dieses Servers' });
