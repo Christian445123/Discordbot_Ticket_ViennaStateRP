@@ -35,7 +35,7 @@ function escapeHtml(str) {
 
 // ── Load user ─────────────────────────────────────────────────────────────────
 async function loadUser() {
-  const res = await fetch('/api/me');
+  const res = await apiFetch('/api/me');
   if (!res.ok) { window.location.href = '/'; return; }
   currentUser = await res.json();
 
@@ -57,7 +57,7 @@ async function loadUser() {
 // ── Load categories ───────────────────────────────────────────────────────────
 async function loadCategories() {
   try {
-    const res  = await fetch('/api/categories');
+    const res  = await apiFetch('/api/categories');
     const data = await res.json();
     categories = Array.isArray(data) ? data : [];
   } catch { categories = []; }
@@ -76,7 +76,7 @@ async function loadCategories() {
 // ── Load stats ────────────────────────────────────────────────────────────────
 async function loadStats() {
   try {
-    const stats = await fetch('/api/stats').then(r => r.json());
+    const stats = await apiFetch('/api/stats').then(r => r.json());
     document.getElementById('statTotal').textContent  = stats.total  ?? 0;
     document.getElementById('statOpen').textContent   = stats.open   ?? 0;
     document.getElementById('statClosed').textContent = stats.closed ?? 0;
@@ -119,7 +119,7 @@ async function loadTickets() {
     <div class="spinner-border spinner-border-sm me-2" role="status"></div>Lade…</td></tr>`;
 
   const own = activeTab === 'mine' ? '&own=true' : '';
-  const res = await fetch(`/api/tickets?${own}`);
+  const res = await apiFetch(`/api/tickets?${own}`);
   if (!res.ok) {
     tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">Fehler beim Laden.</td></tr>`;
     return;
@@ -185,7 +185,7 @@ async function submitCreateTicket() {
   btn.textContent = 'Erstelle…';
 
   try {
-    const res  = await fetch('/api/tickets', {
+    const res  = await apiFetch('/api/tickets', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ category, subject, description }),
@@ -221,7 +221,7 @@ async function loadCategorySettings() {
   const container = document.getElementById('categoryCards');
   container.innerHTML = '<p class="text-muted small">Lade Kategorien…</p>';
   try {
-    const res  = await fetch('/api/admin/categories');
+    const res  = await apiFetch('/api/admin/categories');
     if (!res.ok) { container.innerHTML = '<p class="text-danger small">Fehler beim Laden.</p>'; return; }
     adminCategories = await res.json();
     renderCategoryCards();
@@ -285,7 +285,7 @@ async function saveCategoryEdit() {
   alert.className   = 'alert alert-info';
   alert.textContent = 'Speichern…';
   try {
-    const res = await fetch(`/api/admin/categories/${encodeURIComponent(name)}`, {
+    const res = await apiFetch(`/api/admin/categories/${encodeURIComponent(name)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
     const data = await res.json();

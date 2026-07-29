@@ -7,6 +7,7 @@ const path     = require('path');
 
 const authRoutes   = require('./routes/auth');
 const moduleLoader = require('../core/moduleLoader');
+const guildContext = require('./guildContext');
 
 function createWebServer(discordClient) {
   const app = express();
@@ -36,6 +37,24 @@ function createWebServer(discordClient) {
   app.use('/auth', authRoutes);
 
   const apiRouter = express.Router();
+
+  // Every /api route requires a session; which guild the request is about
+  // and whether that guild's license is valid follow — every module route
+  // runs behind this except the identity/guild-picker/license endpoints
+  // (see guildContext.js for the allowlist).
+  apiRouter.use(guildContext.requireAuth, guildContext.resolveGuildId, guildContext.requireLicense);
+
+  // Guilds the logged-in user and the bot have in common — powers the
+  // dashboard's guild switcher. Cross-cutting, so it lives here rather than
+  // in any single module.
+  apiRouter.get('/guilds', (req, res) => {
+    const botGuildIds = new Set(discordClient.guilds.cache.map(g => g.id));
+    const guilds = (req.user.guilds ?? [])
+      .filter(g => botGuildIds.has(g.id))
+      .map(g => ({ id: g.id, name: g.name }));
+    res.json(guilds);
+  });
+
   moduleLoader.registerRoutes(apiRouter, { discordClient });
   app.use('/api', apiRouter);
 
@@ -47,6 +66,15 @@ function createWebServer(discordClient) {
 
   app.get('/ticket/:id', requireLogin, (_req, res) =>
     res.sendFile(path.join(__dirname, 'public', 'ticket.html')));
+
+  app.get('/moderation', requireLogin, (_req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'moderation.html')));
+
+  app.get('/team', requireLogin, (_req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'team.html')));
+
+  app.get('/lizenz', requireLogin, (_req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'lizenz.html')));
 
   // ── 404 handler ─────────────────────────────────────────────────────────────
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

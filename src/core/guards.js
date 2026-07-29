@@ -2,6 +2,7 @@
 
 // Cross-cutting permission checks shared by every module.
 
+const { PermissionFlagsBits } = require('discord.js');
 const licenseService = require('./license/licenseService');
 const logger          = require('../utils/logger');
 
@@ -43,4 +44,23 @@ async function isStaff(discordClient, guildId, userId) {
   }
 }
 
-module.exports = { isSuperAdmin, requireLicenseSilent, isStaff };
+// Real Discord "Administrator" permission — used for actions the license
+// slash commands also restrict to server admins (e.g. activating a key),
+// as opposed to isStaff() which is the ticket module's configurable role.
+async function isGuildAdmin(discordClient, guildId, userId) {
+  try {
+    const guild = discordClient.guilds.cache.get(guildId)
+               ?? await discordClient.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return false;
+
+    const member = guild.members.cache.get(userId)
+                || await guild.members.fetch(userId).catch(() => null);
+    if (!member) return false;
+
+    return member.permissions.has(PermissionFlagsBits.Administrator);
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { isSuperAdmin, requireLicenseSilent, isStaff, isGuildAdmin };

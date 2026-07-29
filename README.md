@@ -1,25 +1,41 @@
-# Discord Ticket-Bot mit Web-Interface
+# Discord Multi-Feature-Bot (Tickets, Moderation, Team) mit Web-Interface
 
-Ein vollständiges Ticket-System für Discord mit Web-Dashboard.
+Ein lizenzpflichtiger, modular aufgebauter Discord-Bot: Ticket-System, vollständige Moderation
+(inkl. Automod & Eskalation) und Teamverwaltung (Hierarchie, Bewerbungen, Urlaub), jeweils mit
+Web-Dashboard. Der Bot kann mehrere Discord-Server bedienen; jeder Server braucht eine gültige
+Lizenz, sonst bleiben nur die Lizenz-Befehle nutzbar (siehe [Lizenzsystem](#lizenzsystem)).
 
 ## Features
 
-- **Discord-Bot**
-  - Panel mit Kategorie-Auswahl per Dropdown
-  - Modal für Betreff & Beschreibung
-  - Automatische Kanal-Erstellung in einer konfigurierbaren Kategorie
-  - Staff-Rolle erhält automatisch Zugriff auf alle Ticket-Kanäle
-  - Ticket schließen per Button oder `/close`-Befehl
-  - Automatischer Transkript-Export beim Schließen
-  - Log-Kanal für alle Ticket-Aktionen
+- **Tickets**
+  - Panel mit Kategorie-Auswahl per Dropdown, Modal für Betreff & Beschreibung
+  - Automatische Kanal-Erstellung, Staff-Rolle erhält automatisch Zugriff
+  - Ticket schließen per Button oder `/close`, automatischer Transkript-Export, Log-Kanal
+
+- **Moderation** (`/warn`, `/timeout`, `/kick`, `/ban`, `/unban`, `/case`, `/modlogs`)
+  - Fälle mit Straf-Punkten, automatische Eskalation ab konfigurierbaren Schwellen
+    (`/eskalation-config`), Automod (Wortfilter/Invite-Links/Spam/CAPS via `/automod-config`)
+  - Einspruch gegen eine Mod-Entscheidung über das Web-Dashboard ("Meine Fälle")
+
+- **Teamverwaltung** (`/team`, `/team-verwarnung`, `/urlaub`, `/bewerbung-config`, `/bewerbung`)
+  - Rang-Hierarchie mit automatischem Discord-Rollen-Sync bei Beförderung/Degradierung
+  - Bewerbungssystem (dynamisches Formular per Button/Modal), interne Verwarnungen ("Teamakte"),
+    Urlaubsanträge (LOA) und automatische Inaktivitäts-Meldungen
+
+- **Lizenzsystem** (`/lizenz`, `/lizenz-admin`)
+  - Alles-oder-nichts pro Discord-Server: ohne gültige Lizenz bleiben nur die Lizenz-Befehle
+    nutzbar. Signierter Offline-Cache überbrückt kurze DB-Ausfälle (siehe unten)
 
 - **Web-Interface**
-  - Login mit Discord OAuth2
-  - Dashboard mit Statistiken & Suchfunktion
-  - Ticket-Detail-Ansicht mit Nachrichtenverlauf
-  - Direkt aus dem Browser in ein Ticket schreiben – die Nachricht landet sofort auch im
-    Discord-Kanal, und Antworten aus Discord erscheinen automatisch im Web (Live-Sync alle 5s)
-  - Tickets über Browser schließen (Staff & Ticket-Ersteller)
+  - Login mit Discord OAuth2, Dashboard mit Statistiken & Suchfunktion
+  - Guild-Switcher für Nutzer, die auf mehreren lizenzierten Servern Zugriff haben
+  - Direkt aus dem Browser in ein Ticket schreiben – Live-Sync mit Discord alle 5s
+  - Moderation-Seite ("Meine Fälle" + Einspruch), Team-Seite (Roster, Bewerbungen, Urlaub,
+    Teamakte), Lizenz-Seite (Status & Aktivierung)
+
+- **Erweiterbar**: jedes Feature ist ein eigenständiges Modul unter `src/modules/` mit
+  einheitlichem Vertrag (Schema, Commands, Events, Web-Routen) — ein neues Feature ist ein neuer
+  Ordner, ohne bestehenden Code anzufassen (siehe [Modul-Architektur](#modul-architektur--eigene-module-hinzufügen)).
 
 ## Voraussetzungen
 
@@ -68,12 +84,25 @@ cp .env.example .env
 | `PORT`                  | Web-Port (Standard: 3000)                             |
 | `BASE_URL`              | Öffentliche URL des Web-Servers (z.B. http://localhost:3000) |
 | `SESSION_SECRET`        | Zufälliger String (mind. 32 Zeichen)                  |
+| `SUPER_ADMIN_IDS`       | Discord-User-IDs (kommagetrennt) mit Zugriff auf `/lizenz-admin` |
+| `LICENSE_CACHE_SECRET`  | Secret für den signierten Offline-Lizenz-Cache (fällt auf `SESSION_SECRET` zurück) |
+| `LICENSE_OFFLINE_GRACE_HOURS` | Wie lange eine Lizenz bei DB-Ausfall offline gültig bleibt (Standard: 72) |
+| `DEV_GUILD_ID`          | Optional: Slash-Commands nur für diese Guild registrieren (sofort aktiv statt global) |
+
+`DISCORD_GUILD_ID` bleibt als "primäre" Guild bestehen: für sie wird beim ersten Start automatisch
+eine unbefristete Bestandslizenz aktiviert (siehe [Lizenzsystem](#lizenzsystem)), und Web-Requests
+ohne `?guild=`-Parameter fallen auf sie zurück — für einen Single-Server-Betrieb reicht das allein.
 
 ### 4. Slash-Commands registrieren
 
 ```bash
 npm run deploy-commands
 ```
+
+Ohne `DEV_GUILD_ID` werden die Commands **global** registriert (kann bis zu ~1h dauern, erreicht
+aber jede Guild, auf der der Bot ist — nötig, sobald mehr als ein Server lizenziert wird). Mit
+gesetztem `DEV_GUILD_ID` werden sie stattdessen nur für diese eine Guild registriert und sind
+sofort aktiv — praktisch für die Entwicklung.
 
 ### 5. Bot starten
 
@@ -108,9 +137,63 @@ Das Skript legt das MySQL-Schema an (falls nötig) und kopiert Guilds, Kategorie
 Nachrichten und Notizen 1:1 inklusive IDs hinüber. Ohne vorhandene `data/tickets.db` tut es
 nichts – für einen komplett neuen Server also einfach überspringen.
 
+## Lizenzsystem
+
+Jede Guild braucht eine aktivierte Lizenz, sonst reagiert der Bot dort nur noch auf `/lizenz` —
+alle anderen Commands (Tickets, Moderation, Team) und die entsprechenden Web-Routen antworten mit
+einem Lizenz-Hinweis statt auszuführen. Die bereits konfigurierte `DISCORD_GUILD_ID`-Guild bekommt
+beim allerersten Start automatisch eine unbefristete Bestandslizenz (kein manueller Schritt nötig).
+
+**Lizenzen erstellen/verwalten** (nur `SUPER_ADMIN_IDS`, funktioniert auf jeder Guild bzw. ganz
+ohne Guild-Bindung):
+
+```
+/lizenz-admin erstellen label:"Kunde XY" max_server:1 gueltig_tage:365
+/lizenz-admin sperren key:XXXX-XXXX-XXXX-XXXX-XXXX
+/lizenz-admin entsperren key:XXXX-XXXX-XXXX-XXXX-XXXX
+/lizenz-admin verlaengern key:XXXX-XXXX-XXXX-XXXX-XXXX tage:30
+/lizenz-admin liste
+```
+
+**Lizenz auf einem Server aktivieren** (Server-Admin, auch über die Web-Seite `/lizenz` möglich):
+
+```
+/lizenz aktivieren key:XXXX-XXXX-XXXX-XXXX-XXXX
+/lizenz status
+```
+
+**Wie die Prüfung funktioniert:** Der Bot validiert die Lizenz einer Guild gegen die Datenbank
+(mit kurzem In-Memory-Cache, damit nicht jede Interaction einen DB-Roundtrip auslöst) und schreibt
+das Ergebnis signiert nach `data/license-cache.json`. Ist die Datenbank kurzzeitig nicht
+erreichbar, wird dieser Cache als Fallback genutzt — aber nur innerhalb von
+`LICENSE_OFFLINE_GRACE_HOURS` (Standard 72h) und nur, wenn die Signatur (HMAC mit
+`LICENSE_CACHE_SECRET`) noch stimmt. Danach gilt die Lizenz als ungültig, bis die DB wieder
+erreichbar ist.
+
+## Moderation
+
+Fälle (`/warn`, `/timeout`, `/untimeout`, `/kick`, `/ban`, `/unban`) sammeln Straf-Punkte; wird
+dadurch eine über `/eskalation-config` konfigurierte Schwelle überschritten, führt der Bot
+automatisch die hinterlegte Aktion aus (Timeout/Kick/Bann) und legt dafür einen eigenen Fall an.
+Automod (`/automod-config`) scannt Nachrichten auf Invite-Links, eine konfigurierbare Wortliste,
+CAPS-Flood und Spam und wendet dieselbe Punkte-/Eskalationslogik an. Log-Kanal einrichten mit
+`/moderation-setup log_kanal:#mod-logs`. Betroffene können über die Web-Seite **Meine Fälle**
+(`/moderation`) gegen einen Fall Einspruch einlegen — das Team entscheidet per Button im Log-Kanal.
+
+## Teamverwaltung
+
+Ränge mit Hierarchie-Level und optionaler Discord-Rolle (`/team rang-erstellen`), Beförderung/
+Degradierung (`/team befoerdern`, `/team degradieren`) synchronisiert automatisch die zugehörige
+Rolle. Interne Verwarnungen ("Teamakte", getrennt von normaler User-Moderation) über
+`/team-verwarnung`. Urlaub/Abwesenheit über `/urlaub beantragen` (jedes Teammitglied) und
+`/urlaub liste`/`/urlaub entscheiden` (Leitung). Bewerbungsformulare mit bis zu 5 Fragen (Discord-
+Modal-Limit) über `/bewerbung-config formular-erstellen`, gepostet mit `/bewerbung panel` —
+Annehmen vergibt bei konfiguriertem Zielrang automatisch Rang + Rolle. `/team-setup log_kanal:…`
+richtet einen Kanal für automatische Inaktivitäts-Meldungen ein (Schwelle konfigurierbar).
+
 ## Erstkonfiguration auf dem Server
 
-Sobald der Bot online ist, verwende `/setup` auf deinem Server:
+Sobald der Bot online ist und für den Server eine Lizenz aktiv ist, verwende `/setup`:
 
 ```
 /setup kategorie:#ticket-kategorie log_kanal:#ticket-logs staff_rolle:@Staff panel_kanal:#support
@@ -210,47 +293,87 @@ geschrieben werden – nicht nur gelesen:
 ## Projektstruktur
 
 ```
-├── index.js                    # Einstiegspunkt (Bot + Web-Server, verbindet zuerst zur DB)
+├── index.js                    # Einstiegspunkt (DB → Lizenz-Bootstrap → Web-Server → Bot-Login)
 ├── ecosystem.config.js         # PM2-Konfiguration (Produktion)
 ├── scripts/
 │   └── migrate-sqlite-to-mysql.js  # Optionale Einmal-Migration alter SQLite-Daten
 ├── src/
-│   ├── database/
-│   │   └── db.js               # MySQL-Anbindung (mysql2) + automatische Schema-Erstellung
-│   ├── bot/
-│   │   ├── bot.js              # Discord-Client mit Command/Event-Loader
-│   │   ├── deploy-commands.js  # Slash-Command Registrierung
-│   │   ├── ticketLog.js        # Zentrales Logging in den Log-Kanal (erstellt/geschlossen/Notiz/Kategorie)
-│   │   ├── categoryNotify.js   # Ping-Ziel & automatische Nachricht pro Kategorie anwenden
-│   │   ├── panelBuilder.js     # Baut das Panel-Embed + Dropdown aus den DB-Kategorien
-│   │   ├── commands/
-│   │   │   ├── setup.js            # /setup – System einrichten
-│   │   │   ├── close.js            # /close – Ticket schließen
-│   │   │   ├── kategorie.js        # /kategorie – Kategorie eines Tickets ändern
-│   │   │   ├── kategorie-config.js # /kategorie-config – Kategorien verwalten (hinzufügen/bearbeiten/entfernen/liste)
-│   │   │   └── panel.js            # /panel – Panel senden/aktualisieren
-│   │   └── events/
-│   │       ├── ready.js
-│   │       ├── interactionCreate.js  # Buttons, Modals, Slash-Commands
-│   │       └── messageCreate.js      # Nachrichten für Transkript loggen
+│   ├── core/                   # Modul-übergreifendes Fundament — siehe "Modul-Architektur"
+│   │   ├── db.js               # MySQL-Pool + core_guilds-Schema + Schema-Init-Orchestrierung
+│   │   ├── moduleLoader.js     # Entdeckt src/modules/*, sammelt Commands/Events/Routen ein
+│   │   ├── interactionRouter.js # Einziger Events.InteractionCreate-Listener (Lizenz-Gate + Dispatch)
+│   │   ├── client.js           # Baut den Discord-Client aus den Modulen
+│   │   ├── guards.js           # requireLicenseSilent, isStaff, isGuildAdmin, isSuperAdmin
+│   │   ├── events/ready.js     # Bot-Status setzen
+│   │   └── license/            # Lizenz-Prüfung (Service + signierter Offline-Cache)
+│   ├── modules/                # Ein Ordner pro Feature — jedes ist eigenständig ladbar
+│   │   ├── tickets/            # Ticket-System (Panel, Kategorien, Web-Chat, Transkripte)
+│   │   ├── license/            # /lizenz, /lizenz-admin — core:true, läuft auch ohne Lizenz
+│   │   ├── moderation/         # Warn/Kick/Ban/Timeout, Automod, Eskalation, Appeals
+│   │   └── team/               # Rang-Hierarchie, Bewerbungen, Urlaub, Teamakte, Aktivität
 │   ├── utils/
 │   │   └── logger.js           # Konsolen-Logger mit Zeitstempel & Log-Level
+│   ├── bot/
+│   │   └── deploy-commands.js  # Slash-Command Registrierung (global oder DEV_GUILD_ID)
 │   └── web/
-│       ├── server.js           # Express-Server Setup
-│       ├── routes/
-│       │   ├── auth.js         # Discord OAuth2
-│       │   └── api.js          # REST-API
-│       └── public/             # Statisches Frontend
-│           ├── index.html
-│           ├── dashboard.html
-│           ├── ticket.html
+│       ├── server.js           # Express-Server Setup, bindet Modul-Routen dynamisch ein
+│       ├── guildContext.js     # Auth-/Guild-/Lizenz-Middleware für den /api-Router
+│       ├── routes/auth.js      # Discord OAuth2
+│       └── public/             # Statisches Frontend (Bootstrap 5, kein Build-Schritt)
+│           ├── index.html, dashboard.html, ticket.html
+│           ├── moderation.html, team.html, lizenz.html
 │           ├── css/style.css
-│           └── js/
-│               ├── dashboard.js
-│               └── ticket.js
+│           └── js/ (dashboard.js, ticket.js, moderation.js, team.js, lizenz.js, guildSwitcher.js)
 └── data/
-    └── tickets.db              # nur relevant für scripts/migrate-sqlite-to-mysql.js (alte Installationen)
+    ├── tickets.db               # nur relevant für scripts/migrate-sqlite-to-mysql.js (alte Installationen)
+    └── license-cache.json       # signierter Offline-Lizenz-Cache (automatisch angelegt)
 ```
+
+Jedes Modul unter `src/modules/<name>/` folgt intern derselben Struktur: `db.js` (Schema +
+Queries), `commands/*.js`, optional `events/*.js`, `component.js` (Buttons/Modals) und `routes.js`
+(Web-API), zusammengeführt in `index.js`. Details dazu im nächsten Abschnitt.
+
+## Modul-Architektur — eigene Module hinzufügen
+
+Jedes Feature ist ein eigenständiges Modul unter `src/modules/<name>/index.js` mit demselben
+Vertrag:
+
+```js
+module.exports = {
+  name: 'mein-modul',
+  core: false,                      // true = läuft auch ohne gültige Lizenz (wie das license-Modul)
+  initSchema: async (pool) => {},   // eigene Tabellen (CREATE TABLE IF NOT EXISTS)
+  commands: [ /* { data, execute, autocomplete? } */ ],
+  events:   [ /* { name, once?, execute } */ ],   // NIEMALS Events.InteractionCreate!
+  component: async (interaction) => {},           // Buttons/Selects/Modals, customId selbst prüfen
+  registerRoutes: (router, ctx) => {},             // ctx = { discordClient }, Web-API
+};
+```
+
+`src/core/moduleLoader.js` scannt `src/modules/*` automatisch beim Start (alphabetisch) — ein
+neues Feature bedeutet: neuen Ordner mit diesem Vertrag anlegen, sonst nichts. Kein Kern-Code muss
+angefasst werden. Wichtige Punkte:
+
+- **Slash-Commands** landen automatisch in `client.commands` und werden von
+  `src/bot/deploy-commands.js` mit registriert (`npm run deploy-commands`).
+- **`Events.InteractionCreate`** wird ausschließlich zentral in `src/core/interactionRouter.js`
+  behandelt (Lizenz-Gate → Autocomplete/Command-Dispatch → `component`-Handler aller Module der
+  Reihe nach). Ein Modul darf dafür **keinen eigenen Listener** registrieren, sondern exportiert
+  `component`, das selbst prüft, ob es die jeweilige `customId` kennt (Namenskonvention:
+  Präfix wie `ticket_`, `mod_`, `team_`, um Kollisionen zu vermeiden).
+- **Lizenz-Gate**: Standardmäßig (`core: false`) blockiert `interactionRouter` alle Commands und
+  Components des Moduls, wenn die aktuelle Guild keine gültige Lizenz hat. Eigene
+  `events`-Handler (z. B. `messageCreate`) müssen die Prüfung selbst aufrufen —
+  `guards.requireLicenseSilent(guildId)` — siehe `src/modules/tickets/events/messageCreate.js` als
+  Beispiel.
+- **Web-Routen** werden über `registerRoutes(router, ctx)` unter `/api` eingehängt und laufen
+  automatisch hinter derselben Auth-/Lizenz-Middleware (`src/web/guildContext.js`) wie alle
+  anderen Module — außer der Pfad beginnt mit `/me`, `/guilds` oder `/license` (siehe
+  `UNGATED_PREFIXES` dort).
+- **"Ist dieser User Staff"** ist weiterhin ein einziges Konzept über alle Module hinweg
+  (`guards.isStaff`, basiert auf der im Ticket-Modul über `/setup` konfigurierten Staff-Rolle) —
+  kein Modul sollte eine zweite Rollen-Logik einführen, sondern diese Guard-Funktion
+  wiederverwenden oder gezielt erweitern.
 
 ## Logging
 

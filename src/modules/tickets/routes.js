@@ -12,7 +12,7 @@ function requireAuth(req, res, next) {
 }
 
 function requireGuildMember(req, res, next) {
-  const guildId   = process.env.DISCORD_GUILD_ID;
+  const guildId   = req.guildId;
   const isInGuild = req.user.guilds?.some(g => g.id === guildId);
   if (!isInGuild) return res.status(403).json({ error: 'Du bist kein Mitglied dieses Servers' });
   return next();
@@ -107,7 +107,7 @@ module.exports = function apiRoutes(discordClient) {
   // ── Current user ─────────────────────────────────────────────────────────
   router.get('/me', requireAuth, async (req, res) => {
     const { id, username, discriminator, guilds } = req.user;
-    const guildId   = process.env.DISCORD_GUILD_ID;
+    const guildId   = req.guildId;
     const isInGuild = guilds?.some(g => g.id === guildId);
     const isStaff   = await checkStaff(discordClient, guildId, id);
     res.json({
@@ -119,8 +119,7 @@ module.exports = function apiRoutes(discordClient) {
   // ── Categories (for the create-ticket & category-change dropdowns) ─────────
   router.get('/categories', requireAuth, async (req, res) => {
     try {
-      const guildId = process.env.DISCORD_GUILD_ID;
-      if (!guildId) return res.status(500).json({ error: 'DISCORD_GUILD_ID nicht konfiguriert' });
+      const guildId = req.guildId;
       await db.ensureGuildWithDefaults(guildId);
       const rows = await db.getCategories(guildId);
       res.json(rows.map(c => ({ name: c.name, emoji: c.emoji })));
@@ -132,14 +131,14 @@ module.exports = function apiRoutes(discordClient) {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   router.get('/stats', requireAuth, async (req, res) => {
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     await db.ensureGuildWithDefaults(guildId);
     res.json(await db.getStats(guildId));
   });
 
   // ── List tickets ──────────────────────────────────────────────────────────
   router.get('/tickets', requireAuth, async (req, res) => {
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const userId  = req.user.id;
     await db.ensureGuildWithDefaults(guildId);
     const isStaff = await checkStaff(discordClient, guildId, userId);
@@ -157,7 +156,7 @@ module.exports = function apiRoutes(discordClient) {
     const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const userId  = req.user.id;
     const isStaff = await checkStaff(discordClient, guildId, userId);
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
@@ -182,7 +181,7 @@ module.exports = function apiRoutes(discordClient) {
     if (content.length > MAX_MESSAGE_LENGTH)
       return res.status(400).json({ error: `Nachricht zu lang (max. ${MAX_MESSAGE_LENGTH} Zeichen)` });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const userId  = req.user.id;
     const isStaff = await checkStaff(discordClient, guildId, userId);
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
@@ -227,7 +226,7 @@ module.exports = function apiRoutes(discordClient) {
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const { category } = req.body;
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const categoryExists = await db.getCategoryByName(guildId, category);
     if (!categoryExists) return res.status(400).json({ error: 'Ungültige Kategorie' });
 
@@ -272,7 +271,7 @@ module.exports = function apiRoutes(discordClient) {
     if (!subject?.trim())
       return res.status(400).json({ error: 'Betreff ist erforderlich' });
 
-    const guildId  = process.env.DISCORD_GUILD_ID;
+    const guildId  = req.guildId;
     const userId   = req.user.id;
     const username = req.user.username;
     await db.ensureGuildWithDefaults(guildId);
@@ -374,7 +373,7 @@ module.exports = function apiRoutes(discordClient) {
     if (!ticket)                    return res.status(404).json({ error: 'Ticket nicht gefunden' });
     if (ticket.status === 'closed') return res.status(400).json({ error: 'Bereits geschlossen' });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const userId  = req.user.id;
     const isStaff = await checkStaff(discordClient, guildId, userId);
     if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
@@ -409,7 +408,7 @@ module.exports = function apiRoutes(discordClient) {
     const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
 
@@ -428,7 +427,7 @@ module.exports = function apiRoutes(discordClient) {
     const ticket = await db.getTicketById(ticketId);
     if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
 
@@ -443,7 +442,7 @@ module.exports = function apiRoutes(discordClient) {
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
 
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = req.guildId;
     const isStaff = await checkStaff(discordClient, guildId, req.user.id);
     if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann Notizen hinzufügen' });
 
@@ -460,7 +459,7 @@ module.exports = function apiRoutes(discordClient) {
   // ── Admin: list categories with full data (Staff only) ───────────────────
   router.get('/admin/categories', requireAuth, async (req, res) => {
     try {
-      const guildId = process.env.DISCORD_GUILD_ID;
+      const guildId = req.guildId;
       const isStaff = await checkStaff(discordClient, guildId, req.user.id);
       if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
       await db.ensureGuildWithDefaults(guildId);
@@ -475,7 +474,7 @@ module.exports = function apiRoutes(discordClient) {
   // ── Admin: update a category's messages (Staff only) ─────────────────────
   router.put('/admin/categories/:name', requireAuth, async (req, res) => {
     try {
-      const guildId = process.env.DISCORD_GUILD_ID;
+      const guildId = req.guildId;
       const isStaff = await checkStaff(discordClient, guildId, req.user.id);
       if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
 

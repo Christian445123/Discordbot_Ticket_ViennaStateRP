@@ -40,7 +40,7 @@ function switchTicketTab(tab) {
 
 // ── Load user ─────────────────────────────────────────────────────────────────
 async function loadUser() {
-  const res = await fetch('/api/me');
+  const res = await apiFetch('/api/me');
   if (!res.ok) { window.location.href = '/'; return; }
   currentUser = await res.json();
   document.getElementById('userInfo').innerHTML = `
@@ -140,7 +140,7 @@ async function loadNotes() {
   const list = document.getElementById('notesList');
   list.innerHTML = '<p class="text-muted small">Lade Notizen…</p>';
   try {
-    const notes = await fetch(`/api/tickets/${ticketId}/notes`).then(r => r.json());
+    const notes = await apiFetch(`/api/tickets/${ticketId}/notes`).then(r => r.json());
     if (!notes.length) { list.innerHTML = '<p class="text-muted small">Noch keine Notizen.</p>'; return; }
     list.innerHTML = notes.map(n => `
       <div class="note-card">
@@ -163,7 +163,7 @@ async function addNote() {
 
   alert.textContent = 'Speichern…';
   try {
-    const res = await fetch(`/api/tickets/${ticketId}/notes`, {
+    const res = await apiFetch(`/api/tickets/${ticketId}/notes`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ content }),
@@ -183,7 +183,7 @@ async function addNote() {
 // ── Send message / live updates ─────────────────────────────────────────────
 async function refreshTicket() {
   try {
-    const res = await fetch(`/api/tickets/${ticketId}`);
+    const res = await apiFetch(`/api/tickets/${ticketId}`);
     if (!res.ok) return;
     const data = await res.json();
     const headerChanged = ticketData?.status !== data.ticket.status
@@ -199,7 +199,7 @@ async function changeCategory(newCategory) {
   const previous = ticketData?.category;
   select.disabled = true;
   try {
-    const res = await fetch(`/api/tickets/${ticketId}/category`, {
+    const res = await apiFetch(`/api/tickets/${ticketId}/category`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ category: newCategory }),
@@ -235,7 +235,7 @@ async function sendMessage() {
 
   btn.disabled = true;
   try {
-    const res  = await fetch(`/api/tickets/${ticketId}/messages`, {
+    const res  = await apiFetch(`/api/tickets/${ticketId}/messages`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ content }),
@@ -278,7 +278,7 @@ async function closeTicket() {
   btn.disabled    = true;
   btn.textContent = 'Schließe…';
   try {
-    const res = await fetch(`/api/tickets/${ticketId}/close`, { method: 'POST' });
+    const res = await apiFetch(`/api/tickets/${ticketId}/close`, { method: 'POST' });
     if (res.ok) { window.location.reload(); }
     else {
       const err = await res.json();
@@ -306,8 +306,8 @@ composerInput?.addEventListener('input', autoResizeComposer);
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   await loadUser();
-  try { categories = await fetch('/api/categories').then(r => r.json()); } catch { categories = []; }
-  const res = await fetch(`/api/tickets/${ticketId}`);
+  try { categories = await apiFetch('/api/categories').then(r => r.json()); } catch { categories = []; }
+  const res = await apiFetch(`/api/tickets/${ticketId}`);
   if (!res.ok) {
     document.getElementById('messagesContainer').innerHTML =
       '<div class="alert alert-danger">Ticket nicht gefunden oder kein Zugriff.</div>';
