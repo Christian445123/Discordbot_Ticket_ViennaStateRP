@@ -5,8 +5,8 @@
 // so both behave identically.
 
 const { EmbedBuilder } = require('discord.js');
-const db     = require('../database/db');
-const logger = require('../utils/logger');
+const db     = require('./db');
+const logger = require('../../utils/logger');
 
 function buildPingMention(categoryCfg) {
   if (!categoryCfg) return null;

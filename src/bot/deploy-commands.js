@@ -2,28 +2,27 @@
 
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
-const fs     = require('fs');
-const path   = require('path');
-const logger = require('../utils/logger');
+const moduleLoader = require('../core/moduleLoader');
+const logger        = require('../utils/logger');
 
-const commands = [];
-const commandsPath = path.join(__dirname, 'commands');
+const commands = moduleLoader.collectAllCommandsJSON();
+const rest     = new REST().setToken(process.env.DISCORD_TOKEN);
 
-for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) {
-  const command = require(path.join(commandsPath, file));
-  if (command.data) commands.push(command.data.toJSON());
-}
-
-const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+// DEV_GUILD_ID registers commands instantly on a single guild for fast
+// iteration. Without it, commands are registered globally (can take up to
+// ~1h to propagate) — the right choice once the bot runs on more than one
+// Discord server, since a guild-scoped registration only reaches one guild.
+const devGuildId = process.env.DEV_GUILD_ID;
 
 (async () => {
   try {
-    logger.info(`Registriere ${commands.length} Slash-Commands...`);
+    logger.info(`Registriere ${commands.length} Slash-Commands${devGuildId ? ` (Dev-Guild ${devGuildId})` : ' (global)'}...`);
 
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, process.env.DISCORD_GUILD_ID),
-      { body: commands },
-    );
+    const route = devGuildId
+      ? Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, devGuildId)
+      : Routes.applicationCommands(process.env.DISCORD_CLIENT_ID);
+
+    await rest.put(route, { body: commands });
 
     logger.info('Slash-Commands erfolgreich registriert!');
   } catch (err) {

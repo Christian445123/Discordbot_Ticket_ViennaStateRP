@@ -4,7 +4,7 @@
 // configured categories, shared by /setup and /panel so both stay in sync.
 
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
-const db = require('../database/db');
+const db = require('./db');
 
 const DEFAULT_DESCRIPTION =
   'Benötigst du Hilfe oder hast ein Anliegen?\nWähle eine Kategorie aus dem Menü und erstelle ein Ticket.';

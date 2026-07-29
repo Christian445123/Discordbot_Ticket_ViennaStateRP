@@ -4,8 +4,8 @@
 // log channel, so Discord-side and Web-side actions stay in sync.
 
 const { EmbedBuilder } = require('discord.js');
-const db     = require('../database/db');
-const logger = require('../utils/logger');
+const db     = require('./db');
+const logger = require('../../utils/logger');
 
 async function getLogChannel(discordClient, guildId) {
   const guildCfg = await db.getGuild(guildId);

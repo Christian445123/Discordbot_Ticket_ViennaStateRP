@@ -1,9 +1,9 @@
 'use strict';
 
 const express        = require('express');
-const db             = require('../../database/db');
-const ticketLog      = require('../../bot/ticketLog');
-const categoryNotify = require('../../bot/categoryNotify');
+const db             = require('./db');
+const ticketLog      = require('./ticketLog');
+const categoryNotify = require('./categoryNotify');
 const logger         = require('../../utils/logger');
 
 function requireAuth(req, res, next) {

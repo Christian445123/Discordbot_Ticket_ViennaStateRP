@@ -1,7 +1,8 @@
 'use strict';
 
 const { Events } = require('discord.js');
-const db = require('../../database/db');
+const db     = require('../db');
+const guards = require('../../../core/guards');
 
 module.exports = {
   name: Events.MessageCreate,
@@ -9,6 +10,7 @@ module.exports = {
   async execute(message) {
     // Ignore bots and DMs
     if (message.author.bot || !message.guild) return;
+    if (!(await guards.requireLicenseSilent(message.guild.id))) return;
 
     const ticket = await db.getTicketByChannel(message.channel.id);
     if (!ticket || ticket.status === 'closed') return;

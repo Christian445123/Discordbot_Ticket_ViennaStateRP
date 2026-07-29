@@ -1,33 +1,13 @@
 'use strict';
 
-const mysql = require('mysql2/promise');
-
-let pool = null;
-
-function getPool() {
-  if (!pool) {
-    pool = mysql.createPool({
-      host:               process.env.DB_HOST,
-      port:               Number(process.env.DB_PORT) || 3306,
-      user:               process.env.DB_USER,
-      password:           process.env.DB_PASSWORD,
-      database:           process.env.DB_NAME,
-      waitForConnections: true,
-      connectionLimit:    10,
-      namedPlaceholders:  true,
-    });
-  }
-  return pool;
-}
+const core = require('../../core/db');
 
 async function query(sql, params) {
-  const [result] = await getPool().execute(sql, params);
-  return result;
+  return core.query(sql, params);
 }
 
 // ── Schema (auto-created on startup, safe to run every time) ────────────────
-async function init() {
-  const p = getPool();
+async function initSchema(p) {
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS guilds (
@@ -280,7 +260,7 @@ async function getNotes(ticketId) {
 }
 
 module.exports = {
-  init,
+  initSchema,
   getGuild,
   ensureGuild,
   ensureGuildWithDefaults,

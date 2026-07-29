@@ -1,7 +1,6 @@
 'use strict';
 
 const {
-  Events,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -12,10 +11,9 @@ const {
   PermissionFlagsBits,
   ChannelType,
 } = require('discord.js');
-const db             = require('../../database/db');
-const ticketLog      = require('../ticketLog');
-const categoryNotify = require('../categoryNotify');
-const logger         = require('../../utils/logger');
+const db             = require('./db');
+const ticketLog      = require('./ticketLog');
+const categoryNotify = require('./categoryNotify');
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
@@ -168,41 +166,12 @@ async function createTicketChannel(interaction, category, subject) {
   });
 }
 
-// ── Event handler ─────────────────────────────────────────────────────────────
-module.exports = {
-  name: Events.InteractionCreate,
-
-  async execute(interaction) {
-
-    // ── Slash command autocomplete ──────────────────────────────────────────
-    if (interaction.isAutocomplete()) {
-      const command = interaction.client.commands.get(interaction.commandName);
-      if (!command?.autocomplete) return;
-      try {
-        await command.autocomplete(interaction);
-      } catch (err) {
-        logger.error(`Autocomplete für "${interaction.commandName}" fehlgeschlagen:`, err);
-      }
-      return;
-    }
-
-    // ── Slash commands ──────────────────────────────────────────────────────
-    if (interaction.isChatInputCommand()) {
-      const command = interaction.client.commands.get(interaction.commandName);
-      if (!command) return;
-      try {
-        await command.execute(interaction);
-      } catch (err) {
-        logger.error(`Command "${interaction.commandName}" fehlgeschlagen:`, err);
-        const msg = { content: '❌ Fehler beim Ausführen des Befehls.', ephemeral: true };
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(msg);
-        } else {
-          await interaction.reply(msg);
-        }
-      }
-      return;
-    }
+// ── Component handler (buttons/selects/modals) ────────────────────────────────
+// Slash-command dispatch, autocomplete and the license gate are handled
+// centrally by src/core/interactionRouter.js — this only ever sees
+// buttons/selects/modals, and only reacts to the "ticket_"/"close_"/
+// "cancel_close"/"confirm_close_" customIds it owns.
+async function component(interaction) {
 
     // ── Category select menu (from panel) ───────────────────────────────────
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_category') {
@@ -295,5 +264,6 @@ module.exports = {
       await interaction.reply({ content: 'Schließen abgebrochen.', ephemeral: true });
       return;
     }
-  },
-};
+}
+
+module.exports = { component };

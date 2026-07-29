@@ -5,8 +5,8 @@ const session  = require('express-session');
 const passport = require('passport');
 const path     = require('path');
 
-const authRoutes = require('./routes/auth');
-const apiRoutes  = require('./routes/api');
+const authRoutes   = require('./routes/auth');
+const moduleLoader = require('../core/moduleLoader');
 
 function createWebServer(discordClient) {
   const app = express();
@@ -34,7 +34,10 @@ function createWebServer(discordClient) {
 
   // ── Routes ──────────────────────────────────────────────────────────────────
   app.use('/auth', authRoutes);
-  app.use('/api',  apiRoutes(discordClient));
+
+  const apiRouter = express.Router();
+  moduleLoader.registerRoutes(apiRouter, { discordClient });
+  app.use('/api', apiRouter);
 
   // ── Page routes ─────────────────────────────────────────────────────────────
   app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

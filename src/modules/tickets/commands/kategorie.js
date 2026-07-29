@@ -1,7 +1,7 @@
 'use strict';
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const db        = require('../../database/db');
+const db        = require('../db');
 const ticketLog = require('../ticketLog');
 
 module.exports = {
