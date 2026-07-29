@@ -1,15 +1,10 @@
 'use strict';
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const crypto         = require('crypto');
 const licenseDb      = require('../db');
 const guards         = require('../../../core/guards');
 const licenseService = require('../../../core/license/licenseService');
-
-function generateLicenseKey() {
-  const bytes = crypto.randomBytes(10).toString('hex').toUpperCase(); // 20 hex chars
-  return bytes.match(/.{1,4}/g).join('-'); // XXXX-XXXX-XXXX-XXXX-XXXX
-}
+const { generateLicenseKey } = require('../keygen');
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleString('de-AT') : 'Unbefristet';

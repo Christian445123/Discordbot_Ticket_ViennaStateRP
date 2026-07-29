@@ -216,18 +216,42 @@ function showCreateAlert(type, msg) {
 
 // ── Category settings (Staff) ─────────────────────────────────────────────────
 let adminCategories = [];
+let guildRoles = [];
 
 async function loadCategorySettings() {
   const container = document.getElementById('categoryCards');
   container.innerHTML = '<p class="text-muted small">Lade Kategorien…</p>';
   try {
-    const res  = await apiFetch('/api/admin/categories');
-    if (!res.ok) { container.innerHTML = '<p class="text-danger small">Fehler beim Laden.</p>'; return; }
-    adminCategories = await res.json();
+    const [catRes] = await Promise.all([apiFetch('/api/admin/categories'), loadGuildRoles()]);
+    if (!catRes.ok) { container.innerHTML = '<p class="text-danger small">Fehler beim Laden.</p>'; return; }
+    adminCategories = await catRes.json();
     renderCategoryCards();
   } catch {
     container.innerHTML = '<p class="text-danger small">Netzwerkfehler.</p>';
   }
+}
+
+async function loadGuildRoles() {
+  try {
+    const res = await apiFetch('/api/admin/guild-roles');
+    guildRoles = res.ok ? await res.json() : [];
+  } catch { guildRoles = []; }
+
+  const select = document.getElementById('catEditPingRole');
+  const options = guildRoles.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+  select.innerHTML = `<option value="">Keine</option>${options}`;
+}
+
+// Auslastung: jede Kategorie im Verhältnis zu allen aktuell offenen Tickets
+// des Servers — 0-25% grün, 26-50% gelb, 51-75% rot, 76-100% violett.
+function loadBadge(openCount, totalOpen) {
+  if (!totalOpen) return `<span class="ticket-badge badge-load-green">0 offen</span>`;
+  const percent = Math.round((openCount / totalOpen) * 100);
+  let cls = 'badge-load-green';
+  if (percent > 75) cls = 'badge-load-violet';
+  else if (percent > 50) cls = 'badge-load-red';
+  else if (percent > 25) cls = 'badge-load-yellow';
+  return `<span class="ticket-badge ${cls}" title="${percent}% der offenen Tickets">${openCount} offen · ${percent}%</span>`;
 }
 
 function renderCategoryCards() {
@@ -236,6 +260,8 @@ function renderCategoryCards() {
     container.innerHTML = '<p class="text-muted small">Keine Kategorien konfiguriert.</p>';
     return;
   }
+  const totalOpen = adminCategories.reduce((sum, c) => sum + (c.open_count || 0), 0);
+
   container.innerHTML = adminCategories.map(c => `
     <div class="col-md-6 col-lg-4">
       <div class="card bg-dark-card border-0 shadow-sm h-100">
@@ -246,6 +272,11 @@ function renderCategoryCards() {
               <i class="bi bi-pencil-fill"></i>
             </button>
           </div>
+          <div class="mb-2">${loadBadge(c.open_count || 0, totalOpen)}</div>
+          <p class="text-muted small mb-1">
+            <i class="bi bi-card-text me-1"></i>
+            ${c.description ? escapeHtml(c.description) : '<span class="fst-italic">Keine Beschreibung</span>'}
+          </p>
           <p class="text-muted small mb-1">
             <i class="bi bi-chat-left-text me-1"></i>
             ${c.welcome_message ? escapeHtml(c.welcome_message.substring(0, 80)) + (c.welcome_message.length > 80 ? '…' : '') : '<span class="fst-italic">Keine Willkommensnachricht</span>'}
@@ -259,48 +290,106 @@ function renderCategoryCards() {
     </div>`).join('');
 }
 
+function fillCategoryForm(c) {
+  document.getElementById('catEditNameInput').value    = c?.name || '';
+  document.getElementById('catEditEmoji').value        = c?.emoji || '';
+  document.getElementById('catEditDescription').value  = c?.description || '';
+  document.getElementById('catEditPingRole').value     = c?.ping_target_id || '';
+  document.getElementById('catEditWelcome').value      = c?.welcome_message || '';
+  document.getElementById('catEditAutoMsg').value      = c?.auto_message || '';
+  document.getElementById('catEditAutoChannel').checked = c ? !!c.auto_message_channel : true;
+  document.getElementById('catEditAutoDm').checked      = c ? !!c.auto_message_dm : false;
+  document.getElementById('catEditAlert').className     = 'alert d-none';
+}
+
 function openCategoryEdit(name) {
   const c = adminCategories.find(x => x.name === name);
   if (!c) return;
-  document.getElementById('catEditTitle').innerHTML =
-    `<i class="bi bi-pencil-fill text-primary me-2"></i>${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)} bearbeiten`;
-  document.getElementById('catEditName').value          = c.name;
-  document.getElementById('catEditWelcome').value       = c.welcome_message || '';
-  document.getElementById('catEditAutoMsg').value       = c.auto_message    || '';
-  document.getElementById('catEditAutoChannel').checked = !!c.auto_message_channel;
-  document.getElementById('catEditAutoDm').checked      = !!c.auto_message_dm;
-  document.getElementById('catEditAlert').className     = 'alert d-none';
+  document.getElementById('catEditTitle').innerHTML = `<i class="bi bi-pencil-fill text-primary me-2"></i>Kategorie bearbeiten`;
+  document.getElementById('catEditIsNew').value         = 'false';
+  document.getElementById('catEditOriginalName').value  = c.name;
+  document.getElementById('catEditNameInput').readOnly  = true;
+  document.getElementById('catEditDeleteBtn').classList.remove('d-none');
+  fillCategoryForm(c);
+  new bootstrap.Modal(document.getElementById('catEditModal')).show();
+}
+
+function openCategoryCreate() {
+  document.getElementById('catEditTitle').innerHTML = `<i class="bi bi-plus-circle-fill text-primary me-2"></i>Neue Kategorie`;
+  document.getElementById('catEditIsNew').value         = 'true';
+  document.getElementById('catEditOriginalName').value  = '';
+  document.getElementById('catEditNameInput').readOnly  = false;
+  document.getElementById('catEditDeleteBtn').classList.add('d-none');
+  fillCategoryForm(null);
   new bootstrap.Modal(document.getElementById('catEditModal')).show();
 }
 
 async function saveCategoryEdit() {
-  const name    = document.getElementById('catEditName').value;
-  const alert   = document.getElementById('catEditAlert');
+  const isNew        = document.getElementById('catEditIsNew').value === 'true';
+  const originalName = document.getElementById('catEditOriginalName').value;
+  const alertEl       = document.getElementById('catEditAlert');
+
   const payload = {
-    welcome_message:      document.getElementById('catEditWelcome').value.trim(),
-    auto_message:         document.getElementById('catEditAutoMsg').value.trim(),
-    auto_message_channel: document.getElementById('catEditAutoChannel').checked ? 1 : 0,
-    auto_message_dm:      document.getElementById('catEditAutoDm').checked      ? 1 : 0,
+    emoji:                 document.getElementById('catEditEmoji').value.trim(),
+    description:           document.getElementById('catEditDescription').value.trim(),
+    ping_target_id:        document.getElementById('catEditPingRole').value,
+    welcome_message:       document.getElementById('catEditWelcome').value.trim(),
+    auto_message:          document.getElementById('catEditAutoMsg').value.trim(),
+    auto_message_channel:  document.getElementById('catEditAutoChannel').checked ? 1 : 0,
+    auto_message_dm:       document.getElementById('catEditAutoDm').checked      ? 1 : 0,
   };
-  alert.className   = 'alert alert-info';
-  alert.textContent = 'Speichern…';
+  if (isNew) payload.name = document.getElementById('catEditNameInput').value.trim();
+  if (isNew && !payload.name) {
+    alertEl.className = 'alert alert-danger'; alertEl.textContent = 'Bitte einen Namen angeben.'; return;
+  }
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
   try {
-    const res = await apiFetch(`/api/admin/categories/${encodeURIComponent(name)}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
+    const res = isNew
+      ? await apiFetch('/api/admin/categories', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        })
+      : await apiFetch(`/api/admin/categories/${encodeURIComponent(originalName)}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
     const data = await res.json();
     if (res.ok) {
-      alert.className   = 'alert alert-success';
-      alert.textContent = '✓ Gespeichert';
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
       await loadCategorySettings();
+      await loadCategories(); // refresh dropdowns elsewhere on the page too
       setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('catEditModal'))?.hide(), 800);
     } else {
-      alert.className   = 'alert alert-danger';
-      alert.textContent = data.error || 'Fehler';
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
     }
   } catch {
-    alert.className   = 'alert alert-danger';
-    alert.textContent = 'Netzwerkfehler';
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
+}
+
+async function deleteCategoryConfirm() {
+  const name = document.getElementById('catEditOriginalName').value;
+  if (!name) return;
+  if (!confirm(`Kategorie "${name}" wirklich löschen? Bestehende Tickets bleiben erhalten, behalten aber den alten Kategorienamen.`)) return;
+
+  const alertEl = document.getElementById('catEditAlert');
+  try {
+    const res  = await apiFetch(`/api/admin/categories/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      await loadCategorySettings();
+      await loadCategories();
+      bootstrap.Modal.getInstance(document.getElementById('catEditModal'))?.hide();
+    } else {
+      alertEl.className = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler beim Löschen';
+    }
+  } catch {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
   }
 }
 

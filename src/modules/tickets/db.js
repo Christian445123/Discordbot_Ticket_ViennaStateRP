@@ -153,6 +153,16 @@ async function deleteCategory(guildId, name) {
   await query('DELETE FROM categories WHERE guild_id = :guildId AND name = :name', { guildId, name });
 }
 
+// Open-ticket count per category — the raw numbers the "Auslastung" (load)
+// indicator on the admin dashboard is computed from (each category's share
+// of the guild's total currently-open tickets).
+async function getOpenCountsByCategory(guildId) {
+  return query(
+    "SELECT category, COUNT(*) AS open_count FROM tickets WHERE guild_id = :guildId AND status = 'open' GROUP BY category",
+    { guildId },
+  );
+}
+
 async function seedDefaultCategories(guildId) {
   const { count } = await getCategoryCount(guildId);
   if (count > 0) return;
@@ -273,6 +283,7 @@ module.exports = {
   insertCategory,
   updateCategory,
   deleteCategory,
+  getOpenCountsByCategory,
   createTicket,
   getTicketById,
   getTicketByChannel,

@@ -159,6 +159,14 @@ a:focus-visible {
 .badge-cat-5 { background-color: rgba(150,152,157,.15); color: #96989d; }
 .badge-cat-6 { background-color: rgba(235,69,158,.15);  color: #eb459e; }
 
+/* Auslastung (category load, share of total open tickets): green → yellow →
+   red → violet as the share climbs from ~25% to 100% (see loadBadge() in
+   dashboard.js). */
+.badge-load-green  { background-color: rgba(87,242,135,.15);  color: #57f287; }
+.badge-load-yellow { background-color: rgba(254,231,92,.15);  color: #fee75c; }
+.badge-load-red    { background-color: rgba(237,66,69,.15);   color: #ed4245; }
+.badge-load-violet { background-color: rgba(155,89,182,.18);  color: #9b59b6; }
+
 .ticket-badge {
   display: inline-block;
   padding: .2em .55em;

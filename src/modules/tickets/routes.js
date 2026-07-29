@@ -4,6 +4,7 @@ const express        = require('express');
 const db             = require('./db');
 const ticketLog      = require('./ticketLog');
 const categoryNotify = require('./categoryNotify');
+const guards         = require('../../core/guards');
 const logger         = require('../../utils/logger');
 
 function requireAuth(req, res, next) {
@@ -32,20 +33,9 @@ function buildAvatarUrl(user) {
 
 const MAX_MESSAGE_LENGTH = 1800; // leaves headroom for the "**Name** (Quelle):\n" prefix within Discord's 2000-char limit
 
-async function checkStaff(discordClient, guildId, userId) {
-  try {
-    const guildCfg = await db.getGuild(guildId);
-    if (!guildCfg?.staff_role_id) return false;
-    // Fetch the guild from Discord if it's not cached yet (e.g. bot still connecting)
-    const guild = discordClient.guilds.cache.get(guildId)
-               ?? await discordClient.guilds.fetch(guildId).catch(() => null);
-    if (!guild) return false;
-    const member = guild.members.cache.get(userId)
-                   || await guild.members.fetch(userId).catch(() => null);
-    if (!member) return false;
-    return member.roles.cache.has(guildCfg.staff_role_id);
-  } catch { return false; }
-}
+// Shared across every module (see src/core/guards.js) — Administrators
+// always count as staff too, not just the configured staff role.
+const checkStaff = guards.isStaff;
 
 function generateTranscript(ticket, messages) {
   const ticketNum = String(ticket.ticket_number).padStart(4, '0');
@@ -112,6 +102,7 @@ module.exports = function apiRoutes(discordClient) {
     const isStaff   = await checkStaff(discordClient, guildId, id);
     res.json({
       id, username, discriminator, isInGuild, isStaff,
+      isSuperAdmin: guards.isSuperAdmin(id),
       avatar: buildAvatarUrl(req.user),
     });
   });
@@ -456,22 +447,65 @@ module.exports = function apiRoutes(discordClient) {
     res.json({ success: true });
   });
 
-  // ── Admin: list categories with full data (Staff only) ───────────────────
+  // ── Admin: list categories with full data + open-ticket load (Staff only) ──
   router.get('/admin/categories', requireAuth, async (req, res) => {
     try {
       const guildId = req.guildId;
       const isStaff = await checkStaff(discordClient, guildId, req.user.id);
       if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
       await db.ensureGuildWithDefaults(guildId);
-      const rows = await db.getCategories(guildId);
-      res.json(rows);
+
+      const [categories, counts] = await Promise.all([
+        db.getCategories(guildId),
+        db.getOpenCountsByCategory(guildId),
+      ]);
+      const countByName = Object.fromEntries(counts.map(c => [c.category, c.open_count]));
+      res.json(categories.map(c => ({ ...c, open_count: countByName[c.name] ?? 0 })));
     } catch (err) {
       logger.error('Admin categories error:', err.message);
       res.status(500).json({ error: 'Fehler beim Laden der Kategorien' });
     }
   });
 
-  // ── Admin: update a category's messages (Staff only) ─────────────────────
+  // ── Admin: create a category (Staff only) ─────────────────────────────────
+  router.post('/admin/categories', requireAuth, async (req, res) => {
+    try {
+      const guildId = req.guildId;
+      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
+      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
+
+      const name = req.body.name?.trim();
+      if (!name) return res.status(400).json({ error: 'Name ist erforderlich' });
+      if (await db.getCategoryByName(guildId, name)) {
+        return res.status(400).json({ error: 'Eine Kategorie mit diesem Namen existiert bereits' });
+      }
+
+      const { count } = await db.getCategoryCount(guildId);
+      await db.insertCategory({
+        guild_id: guildId,
+        name,
+        emoji:                 req.body.emoji || '🎫',
+        description:           req.body.description || '',
+        ping_type:             req.body.ping_target_id ? 'role' : null,
+        ping_target_id:        req.body.ping_target_id || null,
+        welcome_message:       req.body.welcome_message || null,
+        auto_message:          req.body.auto_message || null,
+        auto_message_channel:  req.body.auto_message_channel ? 1 : 0,
+        auto_message_dm:       req.body.auto_message_dm ? 1 : 0,
+        sort_order:            count,
+      });
+
+      await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
+        action: 'hinzugefügt', name, changedByTag: `${req.user.username} (Web)`,
+      });
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Admin category create error:', err.message);
+      res.status(500).json({ error: 'Fehler beim Erstellen' });
+    }
+  });
+
+  // ── Admin: update a category (Staff only) ─────────────────────────────────
   router.put('/admin/categories/:name', requireAuth, async (req, res) => {
     try {
       const guildId = req.guildId;
@@ -482,22 +516,71 @@ module.exports = function apiRoutes(discordClient) {
       const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
 
-      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji'];
+      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji', 'ping_target_id'];
       const updates = {};
       for (const key of allowed) {
         if (Object.prototype.hasOwnProperty.call(req.body, key)) {
           updates[key] = req.body[key] === '' ? null : req.body[key];
         }
       }
+      // ping_target_id is a role ID here (web only offers role pings, not
+      // individual-user pings — that stays a /kategorie-config-only option).
+      if (Object.prototype.hasOwnProperty.call(updates, 'ping_target_id')) {
+        updates.ping_type = updates.ping_target_id ? 'role' : null;
+      }
       if (Object.keys(updates).length === 0)
         return res.status(400).json({ error: 'Keine Felder angegeben' });
 
       await db.updateCategory(guildId, name, updates);
+      await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
+        action: 'bearbeitet', name, changedByTag: `${req.user.username} (Web)`,
+      });
       res.json({ success: true });
     } catch (err) {
       logger.error('Admin category update error:', err.message);
       res.status(500).json({ error: 'Fehler beim Speichern' });
     }
+  });
+
+  // ── Admin: delete a category (Staff only) ─────────────────────────────────
+  router.delete('/admin/categories/:name', requireAuth, async (req, res) => {
+    try {
+      const guildId = req.guildId;
+      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
+      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
+
+      const name = req.params.name;
+      const existing = await db.getCategoryByName(guildId, name);
+      if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
+
+      const { count } = await db.getCategoryCount(guildId);
+      if (count <= 1) return res.status(400).json({ error: 'Die letzte verbleibende Kategorie kann nicht gelöscht werden' });
+
+      await db.deleteCategory(guildId, name);
+      await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
+        action: 'entfernt', name, changedByTag: `${req.user.username} (Web)`,
+      });
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Admin category delete error:', err.message);
+      res.status(500).json({ error: 'Fehler beim Löschen' });
+    }
+  });
+
+  // ── Admin: guild roles (for the ping-role picker) — Staff only ────────────
+  router.get('/admin/guild-roles', requireAuth, async (req, res) => {
+    const guildId = req.guildId;
+    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
+    if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
+
+    const guild = discordClient.guilds.cache.get(guildId);
+    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+    const roles = guild.roles.cache
+      .filter(r => r.id !== guild.id) // exclude @everyone
+      .sort((a, b) => b.position - a.position)
+      .map(r => ({ id: r.id, name: r.name }));
+    res.json(roles);
   });
 
   return router;

@@ -20,16 +20,18 @@ async function requireLicenseSilent(guildId) {
   }
 }
 
-// "Is this member staff" is still owned by the ticket module's settings
-// table (one staff role per guild, configured via /setup) — moderation and
-// team modules reuse it rather than introducing a second role concept.
-// This is the one intentional core -> module dependency in the codebase.
+// "Is this member staff" is primarily the ticket module's settings table
+// (one staff role per guild, configured via /setup) — moderation and team
+// modules reuse it rather than introducing a second role concept. This is
+// the one intentional core -> module dependency in the codebase.
+//
+// Real Discord Administrators always count as staff too, regardless of
+// whether a staff role has been configured — otherwise a guild that never
+// ran `/setup staff_rolle:@...` (or only wants it for tickets, not
+// moderation/team) would lock EVERYONE, including its own owner, out of
+// every staff-gated command.
 async function isStaff(discordClient, guildId, userId) {
   try {
-    const ticketDb = require('../modules/tickets/db');
-    const guildCfg = await ticketDb.getGuild(guildId);
-    if (!guildCfg?.staff_role_id) return false;
-
     const guild = discordClient.guilds.cache.get(guildId)
                ?? await discordClient.guilds.fetch(guildId).catch(() => null);
     if (!guild) return false;
@@ -38,7 +40,11 @@ async function isStaff(discordClient, guildId, userId) {
                 || await guild.members.fetch(userId).catch(() => null);
     if (!member) return false;
 
-    return member.roles.cache.has(guildCfg.staff_role_id);
+    if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+
+    const ticketDb = require('../modules/tickets/db');
+    const guildCfg = await ticketDb.getGuild(guildId);
+    return Boolean(guildCfg?.staff_role_id && member.roles.cache.has(guildCfg.staff_role_id));
   } catch {
     return false;
   }

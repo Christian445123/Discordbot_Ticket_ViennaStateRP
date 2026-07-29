@@ -135,7 +135,12 @@
 
     <!-- Settings panel (Staff only) -->
     <div id="settingsPanel" class="d-none">
-      <h5 class="mb-3 fw-semibold"><i class="bi bi-tag-fill text-primary me-2"></i>Kategorien verwalten</h5>
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0 fw-semibold"><i class="bi bi-tag-fill text-primary me-2"></i>Kategorien verwalten</h5>
+        <button class="btn btn-primary btn-sm px-3" onclick="openCategoryCreate()">
+          <i class="bi bi-plus-lg me-1"></i>Neue Kategorie
+        </button>
+      </div>
       <div id="categoryCards" class="row g-3"></div>
     </div>
   </div>
@@ -191,7 +196,28 @@
         </div>
         <div class="modal-body">
           <div id="catEditAlert" class="alert d-none mb-3"></div>
-          <input type="hidden" id="catEditName" />
+          <input type="hidden" id="catEditIsNew" />
+          <input type="hidden" id="catEditOriginalName" />
+          <div class="row g-2 mb-3">
+            <div class="col-8">
+              <label class="form-label text-muted small">Name</label>
+              <input type="text" id="catEditNameInput" class="form-control" maxlength="80" placeholder="z. B. Support" />
+            </div>
+            <div class="col-4">
+              <label class="form-label text-muted small">Emoji</label>
+              <input type="text" id="catEditEmoji" class="form-control" maxlength="8" placeholder="🎫" />
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Beschreibung <span class="text-muted">(steht im Panel unter dem Kategorienamen)</span></label>
+            <input type="text" id="catEditDescription" class="form-control" maxlength="200" placeholder="Kurzbeschreibung" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Ping-Rolle <span class="text-muted">(wird bei neuen Tickets dieser Kategorie gepingt)</span></label>
+            <select id="catEditPingRole" class="form-select">
+              <option value="">Keine</option>
+            </select>
+          </div>
           <div class="mb-3">
             <label class="form-label text-muted small">Willkommensnachricht <span class="text-muted">(wird im Ticket-Kanal beim Öffnen angezeigt)</span></label>
             <textarea id="catEditWelcome" class="form-control" rows="4"
@@ -214,6 +240,9 @@
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-danger btn-sm me-auto d-none" id="catEditDeleteBtn" onclick="deleteCategoryConfirm()">
+            <i class="bi bi-trash-fill me-1"></i>Löschen
+          </button>
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
           <button type="button" class="btn btn-primary btn-sm px-4" onclick="saveCategoryEdit()">
             <i class="bi bi-floppy-fill me-1"></i>Speichern
