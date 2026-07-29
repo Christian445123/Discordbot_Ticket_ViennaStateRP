@@ -50,7 +50,7 @@ async function loadRoster() {
               <i class="bi bi-folder-fill"></i>
             </button>
           </div>
-          <p class="text-muted small mb-0"><i class="bi bi-person me-1"></i>${m.user_id}</p>
+          <p class="text-muted small mb-0"><i class="bi bi-person me-1"></i>${escapeHtml(m.username)}</p>
           <p class="text-muted small mb-0"><i class="bi bi-calendar me-1"></i>seit ${formatDate(m.since)}</p>
         </div>
       </div>
@@ -79,32 +79,46 @@ async function openWarnings(userId) {
 }
 
 // ── Applications ──────────────────────────────────────────────────────────────
+let applications = [];
+
 async function loadApplications() {
   const container = document.getElementById('applicationsList');
   container.innerHTML = '<p class="text-muted small">Lade…</p>';
   const res = await apiFetch('/api/team/applications');
   if (!checkStaffResponse(res)) return;
-  const applications = await res.json();
+  applications = await res.json();
 
   if (!applications.length) { container.innerHTML = '<p class="text-muted small">Keine offenen Bewerbungen.</p>'; return; }
 
   container.innerHTML = applications.map(a => `
     <div class="card bg-dark-card border-0 shadow-sm mb-2">
-      <div class="card-body d-flex justify-content-between align-items-center">
-        <div>
-          <div class="fw-semibold">#${a.id} — ${escapeHtml(a.form_name)}</div>
-          <div class="text-muted small">Bewerber: ${a.user_id} — ${formatDate(a.created_at)}</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <div class="fw-semibold">#${a.id} — ${escapeHtml(a.form_name)}</div>
+            <div class="text-muted small">Bewerber: ${escapeHtml(a.username)} — ${formatDate(a.created_at)}</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="openDecide(${a.id})">Antworten ansehen & entscheiden</button>
         </div>
-        <button class="btn btn-sm btn-primary" onclick="openDecide(${a.id})">Entscheiden</button>
       </div>
     </div>
   `).join('');
 }
 
 function openDecide(id) {
+  const application = applications.find(a => a.id === id);
   document.getElementById('decideApplicationId').value = id;
   document.getElementById('decideNote').value = '';
   document.getElementById('decideAlert').className = 'alert d-none';
+
+  const answersEl = document.getElementById('decideAnswers');
+  answersEl.innerHTML = (application?.answers ?? []).map(qa => `
+    <div class="mb-3">
+      <div class="text-muted small fw-semibold">${escapeHtml(qa.question)}</div>
+      <div class="small" style="white-space:pre-wrap">${escapeHtml(qa.answer)}</div>
+    </div>
+  `).join('') || '<p class="text-muted small">Keine Antworten vorhanden.</p>';
+
   new bootstrap.Modal(document.getElementById('decideModal')).show();
 }
 
@@ -150,7 +164,7 @@ async function loadLoa() {
     <div class="card bg-dark-card border-0 shadow-sm mb-2">
       <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <div class="fw-semibold">#${r.id} — ${r.user_id}</div>
+          <div class="fw-semibold">#${r.id} — ${escapeHtml(r.username)}</div>
           <div class="text-muted small">${formatDate(r.start_at)} – ${formatDate(r.end_at)}${r.reason ? ` — ${escapeHtml(r.reason)}` : ''}</div>
         </div>
         <div class="d-flex align-items-center gap-2">
