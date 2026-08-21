@@ -31,6 +31,13 @@ function createWebServer(discordClient) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Admin panel HTML/CSS/JS must never be served stale by an intermediate
+  // cache (e.g. Cloudflare in front of this server) — a code update that
+  // isn't reflected in the browser after a deploy is far more costly than
+  // the negligible cost of always revalidating a handful of static files
+  // on a low-traffic admin panel.
+  app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
   // ── Static files ────────────────────────────────────────────────────────────
   app.use(express.static(path.join(__dirname, 'public')));
 
