@@ -53,11 +53,10 @@ async function initGuildSwitcher(containerId) {
   } catch { /* ignore — single-guild deployments never hit this */ }
 }
 
-// Shows a dismissible banner on every page (except /lizenz itself) when the
-// current guild has no valid license, so staff notice before wondering why
-// tickets/moderation/team API calls are failing with 403s.
+// Shows a dismissible banner on every admin page when the current guild has
+// no valid license, so admins notice before wondering why the category/
+// ticket API calls are failing with 403s.
 async function initLicenseBanner() {
-  if (window.location.pathname === '/lizenz') return;
   try {
     const res = await apiFetch('/api/license/status');
     if (!res.ok) return;
@@ -66,7 +65,7 @@ async function initLicenseBanner() {
 
     const banner = document.createElement('div');
     banner.className = 'alert alert-warning rounded-0 mb-0 text-center small py-2';
-    banner.innerHTML = `⚠️ Keine gültige Lizenz für diesen Server. <a href="/lizenz" class="alert-link">Jetzt aktivieren</a>.`;
+    banner.innerHTML = `⚠️ Keine gültige Lizenz für diesen Server. <a href="/admin#license" class="alert-link">Jetzt aktivieren</a>.`;
     document.body.prepend(banner);
   } catch { /* ignore */ }
 }

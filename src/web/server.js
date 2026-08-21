@@ -39,24 +39,34 @@ function createWebServer(discordClient) {
 
   const apiRouter = express.Router();
 
-  // Every /api route requires a session; which guild the request is about
-  // and whether that guild's license is valid follow — every module route
-  // runs behind this except the identity/guild-picker/license endpoints
-  // (see guildContext.js for the allowlist).
-  apiRouter.use(guildContext.requireAuth, guildContext.resolveGuildId, guildContext.requireLicense);
+  // Every /api route requires a session; which guild the request is about,
+  // whether that guild's license is valid, and whether the user is a real
+  // Discord Administrator on it follow — every module route runs behind all
+  // three except the identity/guild-picker/license endpoints (see
+  // guildContext.js for the allowlist). The web interface is admin-only.
+  apiRouter.use(
+    guildContext.requireAuth,
+    guildContext.resolveGuildId,
+    guildContext.requireLicense,
+    guildContext.requireGuildAdmin(discordClient),
+  );
 
-  // Guilds the logged-in user and the bot have in common — powers the
-  // dashboard's guild switcher. Cross-cutting, so it lives here rather than
-  // in any single module. Bot owners (SUPER_ADMIN_IDS) see every guild the
-  // bot is in, not just ones they personally happen to be a member of —
+  // Guilds the logged-in user administrates and the bot is also in — powers
+  // the admin panel's guild switcher. Cross-cutting, so it lives here rather
+  // than in any single module. Bot owners (SUPER_ADMIN_IDS) see every guild
+  // the bot is in, not just ones they personally happen to be a member of —
   // "full access to everything" includes guilds they haven't joined.
-  apiRouter.get('/guilds', (req, res) => {
+  apiRouter.get('/guilds', async (req, res) => {
     if (guards.isSuperAdmin(req.user.id)) {
       return res.json(discordClient.guilds.cache.map(g => ({ id: g.id, name: g.name })));
     }
     const botGuildIds = new Set(discordClient.guilds.cache.map(g => g.id));
-    const guilds = (req.user.guilds ?? [])
-      .filter(g => botGuildIds.has(g.id))
+    const candidates  = (req.user.guilds ?? []).filter(g => botGuildIds.has(g.id));
+    const adminFlags  = await Promise.all(
+      candidates.map(g => guards.isGuildAdmin(discordClient, g.id, req.user.id)),
+    );
+    const guilds = candidates
+      .filter((_, i) => adminFlags[i])
       .map(g => ({ id: g.id, name: g.name }));
     res.json(guilds);
   });
@@ -67,20 +77,11 @@ function createWebServer(discordClient) {
   // ── Page routes ─────────────────────────────────────────────────────────────
   app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-  app.get('/dashboard', requireLogin, (_req, res) =>
-    res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+  app.get('/admin', requireLogin, (_req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
-  app.get('/ticket/:id', requireLogin, (_req, res) =>
-    res.sendFile(path.join(__dirname, 'public', 'ticket.html')));
-
-  app.get('/moderation', requireLogin, (_req, res) =>
-    res.sendFile(path.join(__dirname, 'public', 'moderation.html')));
-
-  app.get('/team', requireLogin, (_req, res) =>
-    res.sendFile(path.join(__dirname, 'public', 'team.html')));
-
-  app.get('/lizenz', requireLogin, (_req, res) =>
-    res.sendFile(path.join(__dirname, 'public', 'lizenz.html')));
+  app.get('/admin/ticket/:id', requireLogin, (_req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'admin-ticket.html')));
 
   // ── 404 handler ─────────────────────────────────────────────────────────────
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

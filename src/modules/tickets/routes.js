@@ -1,24 +1,19 @@
 'use strict';
 
-const express        = require('express');
-const db             = require('./db');
-const ticketLog      = require('./ticketLog');
-const categoryNotify = require('./categoryNotify');
-const guards         = require('../../core/guards');
-const logger         = require('../../utils/logger');
+// Admin-only web API: the entire /api router this mounts under already runs
+// behind requireAuth + requireLicense + requireGuildAdmin (see
+// src/web/guildContext.js and src/web/server.js), so every handler below can
+// assume "logged in, valid license, real Discord Administrator on this
+// guild" without re-checking it itself. Covers two things: category +
+// automatic-message management, and a read-only ticket overview (no chat,
+// no create/close/category-change from the web — that stays a Discord-side
+// ticket flow, see component.js).
 
-function requireAuth(req, res, next) {
-  if (req.isAuthenticated()) return next();
-  return res.status(401).json({ error: 'Nicht angemeldet' });
-}
-
-function requireGuildMember(req, res, next) {
-  if (guards.isSuperAdmin(req.user.id)) return next(); // bot owner: full access everywhere
-  const guildId   = req.guildId;
-  const isInGuild = req.user.guilds?.some(g => g.id === guildId);
-  if (!isInGuild) return res.status(403).json({ error: 'Du bist kein Mitglied dieses Servers' });
-  return next();
-}
+const express   = require('express');
+const db        = require('./db');
+const ticketLog = require('./ticketLog');
+const guards    = require('../../core/guards');
+const logger    = require('../../utils/logger');
 
 function escHtml(str) {
   return String(str ?? '')
@@ -31,12 +26,6 @@ function buildAvatarUrl(user) {
     ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
     : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
 }
-
-const MAX_MESSAGE_LENGTH = 1800; // leaves headroom for the "**Name** (Quelle):\n" prefix within Discord's 2000-char limit
-
-// Shared across every module (see src/core/guards.js) — Administrators
-// always count as staff too, not just the configured staff role.
-const checkStaff = guards.isStaff;
 
 function generateTranscript(ticket, messages) {
   const ticketNum = String(ticket.ticket_number).padStart(4, '0');
@@ -96,313 +85,52 @@ module.exports = function apiRoutes(discordClient) {
   const router = express.Router();
 
   // ── Current user ─────────────────────────────────────────────────────────
-  router.get('/me', requireAuth, async (req, res) => {
-    const { id, username, discriminator, guilds } = req.user;
-    const guildId   = req.guildId;
-    const isInGuild = guilds?.some(g => g.id === guildId);
-    const isStaff   = await checkStaff(discordClient, guildId, id);
+  router.get('/me', async (req, res) => {
+    const { id, username, discriminator } = req.user;
+    const guildId = req.guildId;
+    const isAdmin = guildId ? await guards.isGuildAdmin(discordClient, guildId, id) : false;
     res.json({
-      id, username, discriminator, isInGuild, isStaff,
+      id, username, discriminator,
+      isAdmin,
       isSuperAdmin: guards.isSuperAdmin(id),
       avatar: buildAvatarUrl(req.user),
     });
   });
 
-  // ── Categories (for the create-ticket & category-change dropdowns) ─────────
-  router.get('/categories', requireAuth, async (req, res) => {
-    try {
-      const guildId = req.guildId;
-      await db.ensureGuildWithDefaults(guildId);
-      const rows = await db.getCategories(guildId);
-      res.json(rows.map(c => ({ name: c.name, emoji: c.emoji })));
-    } catch (err) {
-      logger.error('Fehler beim Laden der Kategorien:', err.message);
-      res.status(500).json({ error: 'Kategorien konnten nicht geladen werden' });
-    }
-  });
-
   // ── Stats ─────────────────────────────────────────────────────────────────
-  router.get('/stats', requireAuth, async (req, res) => {
+  router.get('/stats', async (req, res) => {
     const guildId = req.guildId;
     await db.ensureGuildWithDefaults(guildId);
     res.json(await db.getStats(guildId));
   });
 
-  // ── List tickets ──────────────────────────────────────────────────────────
-  router.get('/tickets', requireAuth, async (req, res) => {
+  // ── Tickets: read-only overview ─────────────────────────────────────────────
+  router.get('/tickets', async (req, res) => {
     const guildId = req.guildId;
-    const userId  = req.user.id;
     await db.ensureGuildWithDefaults(guildId);
-    const isStaff = await checkStaff(discordClient, guildId, userId);
-    const own     = req.query.own === 'true';
-    const tickets = (isStaff && !own)
-      ? await db.getTicketsByGuild(guildId)
-      : await db.getTicketsByUser(guildId, userId);
-    res.json({ tickets, isStaff });
+    const tickets = await db.getTicketsByGuild(guildId);
+    res.json({ tickets });
   });
 
-  // ── Single ticket ─────────────────────────────────────────────────────────
-  router.get('/tickets/:id', requireAuth, async (req, res) => {
+  router.get('/tickets/:id', async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
     const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-
-    const guildId = req.guildId;
-    const userId  = req.user.id;
-    const isStaff = await checkStaff(discordClient, guildId, userId);
-    if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
+    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const rawMessages = await db.getMessages(ticketId);
     const messages = rawMessages.map(m => ({
       ...m, attachments: JSON.parse(m.attachments || '[]'),
     }));
-    res.json({ ticket, messages, isStaff });
-  });
-
-  // ── Send message into a ticket from the web ─────────────────────────────────
-  router.post('/tickets/:id/messages', requireAuth, async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-    if (ticket.status === 'closed') return res.status(400).json({ error: 'Ticket ist bereits geschlossen' });
-
-    const content = req.body.content?.trim();
-    if (!content) return res.status(400).json({ error: 'Nachricht darf nicht leer sein' });
-    if (content.length > MAX_MESSAGE_LENGTH)
-      return res.status(400).json({ error: `Nachricht zu lang (max. ${MAX_MESSAGE_LENGTH} Zeichen)` });
-
-    const guildId = req.guildId;
-    const userId  = req.user.id;
-    const isStaff = await checkStaff(discordClient, guildId, userId);
-    if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
-
-    const avatarUrl = buildAvatarUrl(req.user);
-
-    await db.addMessage({
-      ticket_id:   ticketId,
-      user_id:     userId,
-      username:    req.user.username,
-      avatar_url:  avatarUrl,
-      content,
-      attachments: '[]',
-    });
-
-    // Relay into the Discord channel so both sides stay in sync. Sent as the bot
-    // (impersonating a real user isn't possible without webhooks) with the
-    // author named in the text, and mentions stripped so a ticket message can
-    // never be used to ping @everyone/@here/roles/users in the channel.
-    if (ticket.channel_id) {
-      try {
-        const channel = await discordClient.channels.fetch(ticket.channel_id).catch(() => null);
-        if (channel) {
-          const label  = isStaff ? '🛠️ Staff' : '🌐 Web';
-          let relayed  = `**${req.user.username}** (${label}):\n${content}`;
-          if (relayed.length > 2000) relayed = `${relayed.slice(0, 1997)}…`;
-          await channel.send({ content: relayed, allowedMentions: { parse: [] } });
-        }
-      } catch (err) {
-        logger.error('Web-Nachricht konnte nicht an Discord-Kanal gesendet werden:', err.message);
-      }
-    }
-
-    res.json({ success: true });
-  });
-
-  // ── Change ticket category (Staff only) ─────────────────────────────────────
-  router.post('/tickets/:id/category', requireAuth, async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-
-    const { category } = req.body;
-    const guildId = req.guildId;
-    const categoryExists = await db.getCategoryByName(guildId, category);
-    if (!categoryExists) return res.status(400).json({ error: 'Ungültige Kategorie' });
-
-    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-    if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann die Kategorie ändern' });
-
-    if (category === ticket.category) return res.json({ success: true });
-
-    const oldCategory = ticket.category;
-    await db.updateTicketCategory(category, ticketId);
-
-    if (ticket.channel_id) {
-      try {
-        const channel = await discordClient.channels.fetch(ticket.channel_id).catch(() => null);
-        if (channel) {
-          await channel.setTopic(
-            `Ticket von ${ticket.username} | Kategorie: ${category} | ID: ${ticketId}`,
-          ).catch(() => {});
-          const { EmbedBuilder } = require('discord.js');
-          await channel.send({ embeds: [new EmbedBuilder()
-            .setTitle('🏷️ Kategorie geändert')
-            .setDescription(`Von **${oldCategory}** zu **${category}**`)
-            .setColor(0x5865F2)
-            .setFooter({ text: `Geändert von ${req.user.username} (Web)` })
-            .setTimestamp()] });
-        }
-      } catch (err) {
-        logger.error('Kategorie-Update konnte nicht an Discord-Kanal gesendet werden:', err.message);
-      }
-    }
-
-    await ticketLog.logCategoryChanged(discordClient, guildId, {
-      ticket, oldCategory, newCategory: category, changedByTag: `${req.user.username} (Web)`,
-    });
-
-    res.json({ success: true });
-  });
-
-  // ── Create ticket from web ────────────────────────────────────────────────
-  router.post('/tickets', requireAuth, requireGuildMember, async (req, res) => {
-    const { category, subject, description } = req.body;
-    if (!subject?.trim())
-      return res.status(400).json({ error: 'Betreff ist erforderlich' });
-
-    const guildId  = req.guildId;
-    const userId   = req.user.id;
-    const username = req.user.username;
-    await db.ensureGuildWithDefaults(guildId);
-
-    const categoryExists = await db.getCategoryByName(guildId, category);
-    if (!categoryExists)
-      return res.status(400).json({ error: 'Ungültige Kategorie' });
-
-    const existing = await db.getOpenTicketByUser(guildId, userId);
-    if (existing) return res.status(400).json({ error: 'Du hast bereits ein offenes Ticket', ticketId: existing.id });
-
-    await db.incrementTicketCount(guildId);
-    const { ticket_count } = await db.getTicketCount(guildId);
-    const fullSubject = description?.trim()
-      ? `${subject.trim()}\n\n${description.trim()}`
-      : subject.trim();
-
-    const result = await db.createTicket({
-      ticket_number: ticket_count, guild_id: guildId, channel_id: null,
-      user_id: userId, username, category, subject: fullSubject,
-    });
-    const ticketId = result.lastInsertRowid;
-
-    // Create Discord channel if bot is ready
-    if (discordClient.isReady() && discordClient.guilds.cache.has(guildId)) {
-      try {
-        const { PermissionFlagsBits, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-        const guild       = discordClient.guilds.cache.get(guildId);
-        const guildCfg    = await db.getGuild(guildId);
-        const categoryCfg = await db.getCategoryByName(guildId, category);
-
-        const overwrites = [
-          { id: guild.id,            deny:  [PermissionFlagsBits.ViewChannel] },
-          { id: guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
-        ];
-        if (guildCfg?.staff_role_id)
-          overwrites.push({ id: guildCfg.staff_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
-        // Make sure a category's ping target can actually see the channel it gets pinged into
-        if (categoryCfg?.ping_target_id && !overwrites.some(o => o.id === categoryCfg.ping_target_id))
-          overwrites.push({ id: categoryCfg.ping_target_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
-
-        const member = await guild.members.fetch(userId).catch(() => null);
-        if (member && !overwrites.some(o => o.id === userId))
-          overwrites.push({ id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
-
-        const channel = await guild.channels.create({
-          name: `ticket-${String(ticket_count).padStart(4, '0')}`,
-          type: ChannelType.GuildText,
-          parent: guildCfg?.ticket_category_id ?? null,
-          permissionOverwrites: overwrites,
-          topic: `Ticket von ${username} | ${category} | ID: ${ticketId} | 🌐 Web`,
-        });
-        await db.updateTicketChannel(channel.id, ticketId);
-
-        const embed = new EmbedBuilder()
-          .setTitle(`${categoryCfg?.emoji || '🎫'} ${category} | Ticket`)
-          .setDescription(categoryCfg?.welcome_message || 'Willkommen! Ein Teammitglied wird sich bald melden.')
-          .setColor(0x5865F2)
-          .addFields(
-            { name: 'Erstellt von', value: member ? `${member}` : username, inline: true },
-            { name: 'Kategorie',    value: category,                         inline: true },
-            { name: 'Quelle',       value: '🌐 Web-Interface',                inline: true },
-            { name: 'Betreff',      value: fullSubject,                       inline: false },
-          )
-          .setTimestamp().setFooter({ text: 'Via Web-Interface erstellt' });
-
-        const pingMention = categoryNotify.buildPingMention(categoryCfg);
-        const baseContent = member
-          ? `${member} Dein Web-Ticket wurde erstellt. Ein Teammitglied meldet sich bald.`
-          : `<@${userId}> Dein Ticket wurde erstellt.`;
-
-        await channel.send({
-          content: pingMention ? `${baseContent} ${pingMention}` : baseContent,
-          embeds: [embed],
-          components: [new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('close_ticket').setLabel('Ticket schließen').setStyle(ButtonStyle.Danger).setEmoji('🔒')
-          )],
-        });
-
-        await categoryNotify.applyCategoryExtras(discordClient, guildId, {
-          categoryName: category, channel, userId,
-        });
-
-        await ticketLog.logTicketCreated(discordClient, guildId, {
-          channel, username, category, source: '🌐 Web',
-        });
-      } catch (err) {
-        logger.error('Discord channel creation error:', err.message);
-      }
-    }
-    res.json({ success: true, ticketId });
-  });
-
-  // ── Close ticket via web ──────────────────────────────────────────────────
-  router.post('/tickets/:id/close', requireAuth, async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket)                    return res.status(404).json({ error: 'Ticket nicht gefunden' });
-    if (ticket.status === 'closed') return res.status(400).json({ error: 'Bereits geschlossen' });
-
-    const guildId = req.guildId;
-    const userId  = req.user.id;
-    const isStaff = await checkStaff(discordClient, guildId, userId);
-    if (!isStaff && ticket.user_id !== userId) return res.status(403).json({ error: 'Kein Zugriff' });
-
-    const closedByTag = `${req.user.username} (Web)`;
-    await db.closeTicket({ id: ticketId, closed_by_id: userId, closed_by_name: closedByTag });
-
-    await ticketLog.logTicketClosed(discordClient, guildId, {
-      ticket, closedByTag, source: '🌐 Web',
-    });
-
-    if (ticket.channel_id) {
-      try {
-        const { EmbedBuilder } = require('discord.js');
-        const channel = await discordClient.channels.fetch(ticket.channel_id).catch(() => null);
-        if (channel) {
-          await channel.send({ embeds: [new EmbedBuilder()
-            .setTitle('🔒 Ticket geschlossen (Web-Interface)')
-            .setDescription(`Geschlossen von **${req.user.username}** über das Web-Interface.`)
-            .setColor(0xED4245).setTimestamp()] });
-          setTimeout(() => channel.delete().catch(() => {}), 5000);
-        }
-      } catch (_) {}
-    }
-    res.json({ success: true });
+    res.json({ ticket, messages });
   });
 
   // ── Transcript (HTML) ─────────────────────────────────────────────────────
-  router.get('/tickets/:id/transcript', requireAuth, async (req, res) => {
+  router.get('/tickets/:id/transcript', async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
     const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-
-    const guildId = req.guildId;
-    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-    if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
+    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     const rawMessages = await db.getMessages(ticketId);
     const messages = rawMessages.map(m => ({
@@ -412,48 +140,38 @@ module.exports = function apiRoutes(discordClient) {
     res.send(generateTranscript(ticket, messages));
   });
 
-  // ── Notes (Staff only) ────────────────────────────────────────────────────
-  router.get('/tickets/:id/notes', requireAuth, async (req, res) => {
+  // ── Notes (internal admin annotations, never posted into the Discord channel) ──
+  router.get('/tickets/:id/notes', async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
     const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-
-    const guildId = req.guildId;
-    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-    if (!isStaff && ticket.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
+    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
     res.json(await db.getNotes(ticketId));
   });
 
-  router.post('/tickets/:id/notes', requireAuth, async (req, res) => {
+  router.post('/tickets/:id/notes', async (req, res) => {
     const ticketId = parseInt(req.params.id, 10);
     if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
     const ticket = await db.getTicketById(ticketId);
-    if (!ticket) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
-
-    const guildId = req.guildId;
-    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-    if (!isStaff) return res.status(403).json({ error: 'Nur Staff kann Notizen hinzufügen' });
 
     const noteContent = content.trim();
     await db.addNote(ticketId, req.user.id, req.user.username, noteContent);
 
-    await ticketLog.logNoteAdded(discordClient, guildId, {
-      ticket, authorTag: req.user.username, content: noteContent,
+    await ticketLog.logNoteAdded(discordClient, req.guildId, {
+      ticket, authorTag: `${req.user.username} (Web)`, content: noteContent,
     });
 
     res.json({ success: true });
   });
 
-  // ── Admin: list categories with full data + open-ticket load (Staff only) ──
-  router.get('/admin/categories', requireAuth, async (req, res) => {
+  // ── Categories & automatic messages ─────────────────────────────────────────
+  router.get('/admin/categories', async (req, res) => {
     try {
       const guildId = req.guildId;
-      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
       await db.ensureGuildWithDefaults(guildId);
 
       const [categories, counts] = await Promise.all([
@@ -468,13 +186,9 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
-  // ── Admin: create a category (Staff only) ─────────────────────────────────
-  router.post('/admin/categories', requireAuth, async (req, res) => {
+  router.post('/admin/categories', async (req, res) => {
     try {
       const guildId = req.guildId;
-      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
-
       const name = req.body.name?.trim();
       if (!name) return res.status(400).json({ error: 'Name ist erforderlich' });
       if (await db.getCategoryByName(guildId, name)) {
@@ -506,13 +220,9 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
-  // ── Admin: update a category (Staff only) ─────────────────────────────────
-  router.put('/admin/categories/:name', requireAuth, async (req, res) => {
+  router.put('/admin/categories/:name', async (req, res) => {
     try {
       const guildId = req.guildId;
-      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
-
       const name = req.params.name;
       const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
@@ -543,13 +253,9 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
-  // ── Admin: delete a category (Staff only) ─────────────────────────────────
-  router.delete('/admin/categories/:name', requireAuth, async (req, res) => {
+  router.delete('/admin/categories/:name', async (req, res) => {
     try {
       const guildId = req.guildId;
-      const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-      if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
-
       const name = req.params.name;
       const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
@@ -568,13 +274,9 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
-  // ── Admin: guild roles (for the ping-role picker) — Staff only ────────────
-  router.get('/admin/guild-roles', requireAuth, async (req, res) => {
-    const guildId = req.guildId;
-    const isStaff = await checkStaff(discordClient, guildId, req.user.id);
-    if (!isStaff) return res.status(403).json({ error: 'Nur Staff' });
-
-    const guild = discordClient.guilds.cache.get(guildId);
+  // ── Guild roles (for the ping-role picker) ──────────────────────────────────
+  router.get('/admin/guild-roles', async (req, res) => {
+    const guild = discordClient.guilds.cache.get(req.guildId);
     if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
 
     const roles = guild.roles.cache

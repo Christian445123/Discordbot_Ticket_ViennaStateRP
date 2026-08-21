@@ -26,7 +26,7 @@ async function query(sql, params) {
 }
 
 // Guilds the bot has ever seen, independent of any single feature module —
-// license/moderation/team all need "this guild exists" without depending on
+// license and tickets both need "this guild exists" without depending on
 // the tickets module owning that concept the way the old single-table
 // schema did.
 async function initCoreSchema() {

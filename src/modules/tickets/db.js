@@ -206,10 +206,6 @@ async function getTicketsByGuild(guildId) {
   return query('SELECT * FROM tickets WHERE guild_id = :guildId ORDER BY created_at DESC', { guildId });
 }
 
-async function getTicketsByUser(guildId, userId) {
-  return query('SELECT * FROM tickets WHERE guild_id = :guildId AND user_id = :userId ORDER BY created_at DESC', { guildId, userId });
-}
-
 async function getOpenTicketByUser(guildId, userId) {
   const rows = await query(
     "SELECT * FROM tickets WHERE guild_id = :guildId AND user_id = :userId AND status = 'open' LIMIT 1",
@@ -288,7 +284,6 @@ module.exports = {
   getTicketById,
   getTicketByChannel,
   getTicketsByGuild,
-  getTicketsByUser,
   getOpenTicketByUser,
   updateTicketChannel,
   updateTicketCategory,

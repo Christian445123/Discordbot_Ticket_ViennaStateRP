@@ -85,7 +85,7 @@ function loadEvents(client) {
 // Buttons/select menus/modals: every module gets a chance to handle an
 // interaction. Each handler is expected to check the customId itself and
 // no-op if it doesn't recognize it (namespaced prefixes, e.g. "ticket_",
-// "mod_", "team_", avoid collisions between modules).
+// avoid collisions between modules).
 function collectComponentHandlers() {
   return getModules()
     .filter(({ mod }) => typeof mod.component === 'function')

@@ -1,37 +1,38 @@
-# Discord Multi-Feature-Bot (Tickets, Moderation, Team) mit Web-Interface
+# Discord Ticket-Bot mit Admin-Webinterface
 
-Ein lizenzpflichtiger, modular aufgebauter Discord-Bot: Ticket-System, vollständige Moderation
-(inkl. Automod & Eskalation) und Teamverwaltung (Hierarchie, Bewerbungen, Urlaub), jeweils mit
-Web-Dashboard. Der Bot kann mehrere Discord-Server bedienen; jeder Server braucht eine gültige
-Lizenz, sonst bleiben nur die Lizenz-Befehle nutzbar (siehe [Lizenzsystem](#lizenzsystem)).
+Ein lizenzpflichtiger Discord-Bot, der ausschließlich ein Ticket-System betreibt: Panel mit
+Kategorie-Auswahl, automatische Kanal-Erstellung, automatische Nachrichten pro Kategorie und
+Transkripte. Dazu ein Webinterface, das **nur für Server-Administratoren** zugänglich ist und dort
+Kategorien/automatische Nachrichten verwaltet sowie eine Nur-Lese-Übersicht aller Tickets zeigt.
+Der Bot kann mehrere Discord-Server bedienen; jeder Server braucht eine gültige Lizenz, sonst
+bleiben nur die Lizenz-Befehle nutzbar (siehe [Lizenzsystem](#lizenzsystem)).
 
 ## Features
 
-- **Tickets**
+- **Tickets** (der einzige Zweck des Bots)
   - Panel mit Kategorie-Auswahl per Dropdown, Modal für Betreff & Beschreibung
   - Automatische Kanal-Erstellung, Staff-Rolle erhält automatisch Zugriff
+  - Kategorien pro Server konfigurierbar: Emoji, Panel-Beschreibung, Ping-Ziel,
+    Willkommensnachricht und eine **automatische Nachricht**, die beim Erstellen eines Tickets
+    dieser Kategorie zusätzlich im Kanal und/oder per DM gesendet wird
   - Ticket schließen per Button oder `/close`, automatischer Transkript-Export, Log-Kanal
-
-- **Moderation** (`/warn`, `/timeout`, `/kick`, `/ban`, `/unban`, `/case`, `/modlogs`)
-  - Fälle mit Straf-Punkten, automatische Eskalation ab konfigurierbaren Schwellen
-    (`/eskalation-config`), Automod (Wortfilter/Invite-Links/Spam/CAPS via `/automod-config`)
-  - Einspruch gegen eine Mod-Entscheidung über das Web-Dashboard ("Meine Fälle")
-
-- **Teamverwaltung** (`/team`, `/team-verwarnung`, `/urlaub`, `/bewerbung-config`, `/bewerbung`)
-  - Rang-Hierarchie mit automatischem Discord-Rollen-Sync bei Beförderung/Degradierung
-  - Bewerbungssystem (dynamisches Formular per Button/Modal), interne Verwarnungen ("Teamakte"),
-    Urlaubsanträge (LOA) und automatische Inaktivitäts-Meldungen
 
 - **Lizenzsystem** (`/lizenz`, `/lizenz-admin`)
   - Alles-oder-nichts pro Discord-Server: ohne gültige Lizenz bleiben nur die Lizenz-Befehle
     nutzbar. Signierter Offline-Cache überbrückt kurze DB-Ausfälle (siehe unten)
 
-- **Web-Interface**
-  - Login mit Discord OAuth2, Dashboard mit Statistiken & Suchfunktion
-  - Guild-Switcher für Nutzer, die auf mehreren lizenzierten Servern Zugriff haben
-  - Direkt aus dem Browser in ein Ticket schreiben – Live-Sync mit Discord alle 5s
-  - Moderation-Seite ("Meine Fälle" + Einspruch), Team-Seite (Roster, Bewerbungen, Urlaub,
-    Teamakte), Lizenz-Seite (Status & Aktivierung)
+- **Admin-Webinterface** (nur Server-Administratoren)
+  - Login mit Discord OAuth2, aber nur wer auf dem Server echte "Administrator"-Berechtigung hat,
+    kommt hinter die Login-Seite — alle anderen sehen nur einen "Kein Zugriff"-Hinweis
+  - **Kategorien & automatische Nachrichten** verwalten (anlegen/bearbeiten/löschen, Ping-Rolle,
+    Willkommens- und Auto-Nachricht) — dieselbe Funktion wie `/kategorie-config`, nur im Browser
+  - **Ticket-Übersicht** (Nur-Lese): Liste aller Tickets mit Status/Kategorie/Suche, Detailansicht
+    mit dem echten Discord-Gesprächsverlauf und Transkript-Export. Kein Web-Chat, kein Erstellen/
+    Schließen/Kategorie-Ändern über das Web — das bleibt bewusst ein Discord-seitiger Vorgang
+  - **Lizenz-Status & Aktivierung**, für Bot-Administratoren zusätzlich serverübergreifende
+    Lizenzverwaltung (erstellen/sperren/verlängern)
+  - Interne Notizen pro Ticket (nur im Webinterface sichtbar, werden nie in den Ticket-Kanal
+    gepostet) lassen sich ebenfalls im Webinterface anlegen
 
 - **Erweiterbar**: jedes Feature ist ein eigenständiges Modul unter `src/modules/` mit
   einheitlichem Vertrag (Schema, Commands, Events, Web-Routen) — ein neues Feature ist ein neuer
@@ -84,7 +85,7 @@ cp .env.example .env
 | `PORT`                  | Web-Port (Standard: 3000)                             |
 | `BASE_URL`              | Öffentliche URL des Web-Servers (z.B. http://localhost:3000) |
 | `SESSION_SECRET`        | Zufälliger String (mind. 32 Zeichen)                  |
-| `SUPER_ADMIN_IDS`       | Discord-User-IDs (kommagetrennt) mit Zugriff auf `/lizenz-admin` |
+| `SUPER_ADMIN_IDS`       | Discord-User-IDs (kommagetrennt) mit Zugriff auf `/lizenz-admin` und uneingeschränktem Web-Zugriff auf jeden Server |
 | `LICENSE_CACHE_SECRET`  | Secret für den signierten Offline-Lizenz-Cache (fällt auf `SESSION_SECRET` zurück) |
 | `LICENSE_OFFLINE_GRACE_HOURS` | Wie lange eine Lizenz bei DB-Ausfall offline gültig bleibt (Standard: 72) |
 | `DEV_GUILD_ID`          | Optional: Slash-Commands nur für diese Guild registrieren (sofort aktiv statt global) |
@@ -140,9 +141,9 @@ nichts – für einen komplett neuen Server also einfach überspringen.
 ## Lizenzsystem
 
 Jede Guild braucht eine aktivierte Lizenz, sonst reagiert der Bot dort nur noch auf `/lizenz` —
-alle anderen Commands (Tickets, Moderation, Team) und die entsprechenden Web-Routen antworten mit
-einem Lizenz-Hinweis statt auszuführen. Die bereits konfigurierte `DISCORD_GUILD_ID`-Guild bekommt
-beim allerersten Start automatisch eine unbefristete Bestandslizenz (kein manueller Schritt nötig).
+alle anderen Commands (Tickets) und die entsprechenden Web-Routen antworten mit einem
+Lizenz-Hinweis statt auszuführen. Die bereits konfigurierte `DISCORD_GUILD_ID`-Guild bekommt beim
+allerersten Start automatisch eine unbefristete Bestandslizenz (kein manueller Schritt nötig).
 
 **Lizenzen erstellen/verwalten** (nur `SUPER_ADMIN_IDS`, funktioniert auf jeder Guild bzw. ganz
 ohne Guild-Bindung):
@@ -155,7 +156,8 @@ ohne Guild-Bindung):
 /lizenz-admin liste
 ```
 
-**Lizenz auf einem Server aktivieren** (Server-Admin, auch über die Web-Seite `/lizenz` möglich):
+**Lizenz auf einem Server aktivieren** (Server-Admin, auch über das Web-Interface möglich, Tab
+"Lizenz"):
 
 ```
 /lizenz aktivieren key:XXXX-XXXX-XXXX-XXXX-XXXX
@@ -169,27 +171,6 @@ erreichbar, wird dieser Cache als Fallback genutzt — aber nur innerhalb von
 `LICENSE_OFFLINE_GRACE_HOURS` (Standard 72h) und nur, wenn die Signatur (HMAC mit
 `LICENSE_CACHE_SECRET`) noch stimmt. Danach gilt die Lizenz als ungültig, bis die DB wieder
 erreichbar ist.
-
-## Moderation
-
-Fälle (`/warn`, `/timeout`, `/untimeout`, `/kick`, `/ban`, `/unban`) sammeln Straf-Punkte; wird
-dadurch eine über `/eskalation-config` konfigurierte Schwelle überschritten, führt der Bot
-automatisch die hinterlegte Aktion aus (Timeout/Kick/Bann) und legt dafür einen eigenen Fall an.
-Automod (`/automod-config`) scannt Nachrichten auf Invite-Links, eine konfigurierbare Wortliste,
-CAPS-Flood und Spam und wendet dieselbe Punkte-/Eskalationslogik an. Log-Kanal einrichten mit
-`/moderation-setup log_kanal:#mod-logs`. Betroffene können über die Web-Seite **Meine Fälle**
-(`/moderation`) gegen einen Fall Einspruch einlegen — das Team entscheidet per Button im Log-Kanal.
-
-## Teamverwaltung
-
-Ränge mit Hierarchie-Level und optionaler Discord-Rolle (`/team rang-erstellen`), Beförderung/
-Degradierung (`/team befoerdern`, `/team degradieren`) synchronisiert automatisch die zugehörige
-Rolle. Interne Verwarnungen ("Teamakte", getrennt von normaler User-Moderation) über
-`/team-verwarnung`. Urlaub/Abwesenheit über `/urlaub beantragen` (jedes Teammitglied) und
-`/urlaub liste`/`/urlaub entscheiden` (Leitung). Bewerbungsformulare mit bis zu 5 Fragen (Discord-
-Modal-Limit) über `/bewerbung-config formular-erstellen`, gepostet mit `/bewerbung panel` —
-Annehmen vergibt bei konfiguriertem Zielrang automatisch Rang + Rolle. `/team-setup log_kanal:…`
-richtet einen Kanal für automatische Inaktivitäts-Meldungen ein (Schwelle konfigurierbar).
 
 ## Erstkonfiguration auf dem Server
 
@@ -208,26 +189,24 @@ Sobald der Bot online ist und für den Server eine Lizenz aktiv ist, verwende `/
 | `panel_beschreibung` | Eigener Beschreibungstext für das Panel-Embed                  |
 | `panel_bild`         | Bild-URL, die groß im Panel-Embed angezeigt wird                |
 
-Damit eine Rolle (z. B. `@Team`) volle Verwaltungsrechte über alle Tickets bekommt – Zugriff auf
-jeden Ticket-Kanal, Web-Dashboard "Alle Tickets", Tickets schließen, Notizen, Kategorie ändern –
-reicht es, sie einmalig als `staff_rolle` zu setzen:
-
-```
-/setup staff_rolle:@Team
-```
-
 Innerhalb eines Ticket-Kanals kann Staff die Kategorie danach jederzeit mit `/kategorie
-neue_kategorie:<Kategorie>` ändern (oder über das Dropdown in der Web-Ansicht des Tickets).
+neue_kategorie:<Kategorie>` ändern.
 
-## Ticket-Kategorien
+## Ticket-Kategorien & automatische Nachrichten
 
-Kategorien sind **pro Server konfigurierbar** (nicht mehr fest im Code) – jede hat einen Namen,
-ein Emoji, eine im Panel angezeigte Beschreibung, optional ein Ping-Ziel und optional eine
-automatische Nachricht. Beim ersten Kontakt mit einem Server werden fünf Standardkategorien
-angelegt (Support, Bug-Report, Bewerbung, Beschwerde, Allgemein) – frei anpassbar über
-`/kategorie-config`.
+Kategorien sind **pro Server konfigurierbar** – jede hat einen Namen, ein Emoji, eine im Panel
+angezeigte Beschreibung, optional ein Ping-Ziel, eine Willkommensnachricht und optional eine
+**automatische Nachricht**, die zusätzlich beim Erstellen eines Tickets dieser Kategorie gesendet
+wird (im Ticket-Kanal und/oder per DM an den Ersteller). Beim ersten Kontakt mit einem Server
+werden fünf Standardkategorien angelegt (Support, Bug-Report, Bewerbung, Beschwerde, Allgemein).
 
-### Kategorien verwalten – `/kategorie-config` (nur Admins)
+Kategorien lassen sich auf zwei gleichwertigen Wegen pflegen:
+
+- **Slash-Command** `/kategorie-config` (nur Admins) — siehe unten
+- **Admin-Webinterface** (`/admin`, Tab "Kategorien & Nachrichten") — dieselben Felder in einer
+  Kartenansicht mit Bearbeiten-Dialog, siehe [Admin-Webinterface](#admin-webinterface)
+
+### `/kategorie-config` (nur Admins)
 
 ```
 /kategorie-config hinzufuegen name:Bug-Report emoji:🐛 beschreibung:"Fehler im Spiel melden" ping_rolle:@QA-Team auto_nachricht:"Bitte Screenshots & Reproduktionsschritte angeben." auto_im_kanal:true auto_als_dm:false
@@ -247,17 +226,9 @@ angelegt (Support, Bug-Report, Bewerbung, Beschwerde, Allgemein) – frei anpass
 | `auto_als_dm`     | Automatische Nachricht zusätzlich per Direktnachricht an den Ersteller senden (Standard: nein) |
 
 Name-Felder bei `bearbeiten`/`entfernen` bieten Autovervollständigung – die letzte verbleibende
-Kategorie eines Servers kann nicht gelöscht werden.
-
-### Kategorie eines bestehenden Tickets ändern – `/kategorie`
-
-Innerhalb eines Ticket-Kanals kann Staff die Kategorie mit `/kategorie neue_kategorie:<Kategorie>`
-ändern (oder über das Dropdown in der Web-Ansicht des Tickets).
+Kategorie eines Servers kann nicht gelöscht werden (weder per Command noch im Web).
 
 ### Panel senden/aktualisieren – `/panel`
-
-Das Panel kann auch unabhängig von `/setup` (neu) gepostet oder nach Kategorie-Änderungen
-aktualisiert werden:
 
 ```
 /panel senden kanal:#support
@@ -265,30 +236,27 @@ aktualisiert werden:
 ```
 
 Das Panel zeigt automatisch alle konfigurierten Kategorien mit Emoji + Beschreibung im Embed,
-plus optionalem Bild (`panel_bild` in `/setup`) – ähnlich einem klassischen Ticket-Panel mit
-Dropdown-Auswahl.
+plus optionalem Bild (`panel_bild` in `/setup`).
 
-## Web-Chat (Nachrichten aus dem Browser)
+## Admin-Webinterface
 
-Auf der Ticket-Detailseite (`/ticket/:id`) kann direkt aus dem Browser in ein offenes Ticket
-geschrieben werden – nicht nur gelesen:
+Erreichbar unter `/admin`, Login über "Als Administrator anmelden" (Discord OAuth2). Zugriff
+bekommt **ausschließlich**, wer auf dem gewählten Server echte Discord-"Administrator"-Berechtigung
+hat (oder in `SUPER_ADMIN_IDS` steht) — alle anderen sehen nach dem Login nur einen
+"Kein Zugriff"-Hinweis, alle `/api`-Routen antworten mit `403`.
 
-- **Wer darf schreiben:** Staff (Rolle aus `/setup`) sowie der Ticket-Ersteller selbst, solange
-  das Ticket offen ist. Bei einem geschlossenen Ticket wird der Schreibbereich durch den
-  "Ticket ist geschlossen"-Hinweis ersetzt.
-- **Bedienung:** `Enter` sendet die Nachricht, `Umschalt+Enter` fügt eine neue Zeile ein
-  (max. 1800 Zeichen).
-- **Synchronisierung mit Discord:** Jede Web-Nachricht wird sofort auch in den zugehörigen
-  Ticket-Kanal auf Discord gepostet (als Bot-Nachricht mit Namen des Absenders und Kennzeichnung
-  🌐 Web bzw. 🛠️ Staff), und in der Datenbank gespeichert. Umgekehrt holt die Ticket-Seite alle
-  5 Sekunden neue Nachrichten (inkl. Antworten direkt aus Discord) nach, solange der
-  "Nachrichten"-Tab aktiv und der Browser-Tab sichtbar ist – ganz ohne manuelles Neuladen.
-- **Sicherheit:** Web-Nachrichten werden beim Senden an Discord mit `allowedMentions: { parse: [] }`
-  verschickt, sodass über das Web-Formular niemals `@everyone`, `@here`, Rollen oder einzelne
-  Nutzer im Ticket-Kanal gepingt werden können.
-- **Kein Nutzer-Impersonating:** Da Discord-Bots keine Nachrichten "als" ein anderes Mitglied
-  senden können (ohne Webhooks), erscheinen Web-Nachrichten im Kanal als Bot-Nachricht mit dem
-  Namen des Absenders im Text (`**Name** (🌐 Web): …`) statt mit dessen echtem Profilbild/Namen.
+- **Kategorien & Nachrichten**: Kategorien anlegen/bearbeiten/löschen, inkl. Ping-Rolle,
+  Willkommensnachricht und automatischer Nachricht (Kanal/DM) — identische Daten wie
+  `/kategorie-config`, sofort auf beiden Wegen sichtbar.
+- **Tickets**: Nur-Lese-Übersicht mit Suche/Status-/Kategorie-Filter. Ein Klick auf ein Ticket
+  öffnet eine Detailansicht mit dem echten (aus Discord aufgezeichneten) Gesprächsverlauf,
+  Transkript-Download und internen Notizen. Ticket erstellen, Nachrichten schreiben, schließen
+  oder die Kategorie ändern geht **nicht** über das Web — das bleibt bewusst Discord-seitig
+  (Panel-Button/Slash-Commands), damit der Bot ausschließlich über Discord bedient wird.
+- **Lizenz**: Status der aktuellen Guild, Aktivierung eines Schlüssels; für `SUPER_ADMIN_IDS`
+  zusätzlich serverübergreifende Lizenzverwaltung.
+- **Guild-Switcher**: Nutzer mit Administrator-Rechten auf mehreren lizenzierten Servern können
+  oben rechts zwischen ihnen wechseln.
 
 ## Projektstruktur
 
@@ -303,27 +271,24 @@ geschrieben werden – nicht nur gelesen:
 │   │   ├── moduleLoader.js     # Entdeckt src/modules/*, sammelt Commands/Events/Routen ein
 │   │   ├── interactionRouter.js # Einziger Events.InteractionCreate-Listener (Lizenz-Gate + Dispatch)
 │   │   ├── client.js           # Baut den Discord-Client aus den Modulen
-│   │   ├── guards.js           # requireLicenseSilent, isStaff, isGuildAdmin, isSuperAdmin
+│   │   ├── guards.js           # requireLicenseSilent, isSuperAdmin, isGuildAdmin
 │   │   ├── events/ready.js     # Bot-Status setzen
 │   │   └── license/            # Lizenz-Prüfung (Service + signierter Offline-Cache)
 │   ├── modules/                # Ein Ordner pro Feature — jedes ist eigenständig ladbar
-│   │   ├── tickets/            # Ticket-System (Panel, Kategorien, Web-Chat, Transkripte)
-│   │   ├── license/            # /lizenz, /lizenz-admin — core:true, läuft auch ohne Lizenz
-│   │   ├── moderation/         # Warn/Kick/Ban/Timeout, Automod, Eskalation, Appeals
-│   │   └── team/               # Rang-Hierarchie, Bewerbungen, Urlaub, Teamakte, Aktivität
+│   │   ├── tickets/            # Ticket-System (Panel, Kategorien, Auto-Nachrichten, Admin-API)
+│   │   └── license/            # /lizenz, /lizenz-admin — core:true, läuft auch ohne Lizenz
 │   ├── utils/
 │   │   └── logger.js           # Konsolen-Logger mit Zeitstempel & Log-Level
 │   ├── bot/
 │   │   └── deploy-commands.js  # Slash-Command Registrierung (global oder DEV_GUILD_ID)
 │   └── web/
 │       ├── server.js           # Express-Server Setup, bindet Modul-Routen dynamisch ein
-│       ├── guildContext.js     # Auth-/Guild-/Lizenz-Middleware für den /api-Router
+│       ├── guildContext.js     # Auth-/Guild-/Lizenz-/Admin-Middleware für den /api-Router
 │       ├── routes/auth.js      # Discord OAuth2
 │       └── public/             # Statisches Frontend (Bootstrap 5, kein Build-Schritt)
-│           ├── index.html, dashboard.html, ticket.html
-│           ├── moderation.html, team.html, lizenz.html
+│           ├── index.html, admin.html, admin-ticket.html
 │           ├── css/style.css
-│           └── js/ (dashboard.js, ticket.js, moderation.js, team.js, lizenz.js, guildSwitcher.js)
+│           └── js/ (admin.js, admin-ticket.js, guildSwitcher.js)
 └── data/
     ├── tickets.db               # nur relevant für scripts/migrate-sqlite-to-mysql.js (alte Installationen)
     └── license-cache.json       # signierter Offline-Lizenz-Cache (automatisch angelegt)
@@ -360,20 +325,17 @@ angefasst werden. Wichtige Punkte:
   behandelt (Lizenz-Gate → Autocomplete/Command-Dispatch → `component`-Handler aller Module der
   Reihe nach). Ein Modul darf dafür **keinen eigenen Listener** registrieren, sondern exportiert
   `component`, das selbst prüft, ob es die jeweilige `customId` kennt (Namenskonvention:
-  Präfix wie `ticket_`, `mod_`, `team_`, um Kollisionen zu vermeiden).
+  Präfix wie `ticket_`, um Kollisionen zu vermeiden).
 - **Lizenz-Gate**: Standardmäßig (`core: false`) blockiert `interactionRouter` alle Commands und
   Components des Moduls, wenn die aktuelle Guild keine gültige Lizenz hat. Eigene
   `events`-Handler (z. B. `messageCreate`) müssen die Prüfung selbst aufrufen —
   `guards.requireLicenseSilent(guildId)` — siehe `src/modules/tickets/events/messageCreate.js` als
   Beispiel.
 - **Web-Routen** werden über `registerRoutes(router, ctx)` unter `/api` eingehängt und laufen
-  automatisch hinter derselben Auth-/Lizenz-Middleware (`src/web/guildContext.js`) wie alle
+  automatisch hinter derselben Auth-/Lizenz-/Admin-Middleware (`src/web/guildContext.js`) wie alle
   anderen Module — außer der Pfad beginnt mit `/me`, `/guilds` oder `/license` (siehe
-  `UNGATED_PREFIXES` dort).
-- **"Ist dieser User Staff"** ist weiterhin ein einziges Konzept über alle Module hinweg
-  (`guards.isStaff`, basiert auf der im Ticket-Modul über `/setup` konfigurierten Staff-Rolle) —
-  kein Modul sollte eine zweite Rollen-Logik einführen, sondern diese Guard-Funktion
-  wiederverwenden oder gezielt erweitern.
+  `UNGATED_PREFIXES` dort). Das Webinterface ist komplett admin-only: `requireGuildAdmin` prüft
+  echte Discord-"Administrator"-Berechtigung auf der gewählten Guild.
 
 ## Logging
 
@@ -402,16 +364,15 @@ Zusätzlich fängt `index.js` unbehandelte Fehler ab:
 ### 2. Discord Log-Kanal
 
 Der unter `/setup log_kanal:` konfigurierte Kanal erhält bei jeder Ticket-Aktion eine Embed-Nachricht
-(über `src/bot/ticketLog.js`, gemeinsam genutzt von Bot- und Web-Pfad, damit keine Aktion vergessen wird):
+(über `src/modules/tickets/ticketLog.js`):
 
 | Aktion             | Inhalt                                                                | Quelle              |
-|--------------------|------------------------------------------------------------------------|---------------------|
-| Ticket erstellt    | Kanal, Benutzer, Kategorie                                             | 🎮 Discord / 🌐 Web |
-| Ticket geschlossen | Ticket-Nr., Ersteller, wer geschlossen hat, Transkript (`.txt`-Anhang) | 🎮 Discord / 🌐 Web |
-| Notiz hinzugefügt  | Ticket-Nr., Autor, Notiztext                                           | 🌐 Web (Staff)      |
-
-Egal ob eine Aktion per Discord (Button/Slash-Command) oder über das Web-Interface ausgelöst wird,
-landet sie im selben Log-Kanal – die Quelle steht im Embed.
+|--------------------|--------------------------------------------------------------------- |----------------------|
+| Ticket erstellt    | Kanal, Benutzer, Kategorie                                             | 🎮 Discord           |
+| Ticket geschlossen | Ticket-Nr., Ersteller, wer geschlossen hat, Transkript (`.txt`-Anhang) | 🎮 Discord           |
+| Kategorie geändert | Ticket-Nr., alte/neue Kategorie                                        | 🎮 Discord           |
+| Notiz hinzugefügt  | Ticket-Nr., Autor, Notiztext                                           | 🌐 Web (Admin)        |
+| Kategorie-Konfig geändert | Welche Kategorie, welche Aktion                                  | 🎮 Discord / 🌐 Web (Admin) |
 
 ### 3. PM2 (Produktion)
 

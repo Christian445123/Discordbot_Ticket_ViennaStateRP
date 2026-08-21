@@ -1,7 +1,7 @@
 {
   "name": "discordbot-ticket",
   "version": "1.0.0",
-  "description": "Discord Ticket Bot mit Web-Interface",
+  "description": "Discord Ticket Bot mit admin-only Web-Interface",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

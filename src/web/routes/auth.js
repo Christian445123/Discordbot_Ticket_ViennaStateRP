@@ -25,7 +25,7 @@ router.get('/discord', passport.authenticate('discord'));
 
 router.get('/discord/callback',
   passport.authenticate('discord', { failureRedirect: '/' }),
-  (_req, res) => res.redirect('/dashboard'),
+  (_req, res) => res.redirect('/admin'),
 );
 
 router.get('/logout', (req, res, next) => {

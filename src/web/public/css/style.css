@@ -151,7 +151,7 @@ a:focus-visible {
 
 /* Category colors — categories are admin-defined (see /kategorie-config), so
    badges are assigned one of these 6 palette slots deterministically by name
-   (see categoryClass() in dashboard.js / ticket.js) rather than by fixed name. */
+   (see categoryClass() in admin.js) rather than by fixed name. */
 .badge-cat-1 { background-color: rgba(88,101,242,.15);  color: #5865f2; }
 .badge-cat-2 { background-color: rgba(237,66,69,.15);   color: #ed4245; }
 .badge-cat-3 { background-color: rgba(87,242,135,.15);  color: #57f287; }
@@ -161,7 +161,7 @@ a:focus-visible {
 
 /* Auslastung (category load, share of total open tickets): green → yellow →
    red → violet as the share climbs from ~25% to 100% (see loadBadge() in
-   dashboard.js). */
+   admin.js). */
 .badge-load-green  { background-color: rgba(87,242,135,.15);  color: #57f287; }
 .badge-load-yellow { background-color: rgba(254,231,92,.15);  color: #fee75c; }
 .badge-load-red    { background-color: rgba(237,66,69,.15);   color: #ed4245; }
