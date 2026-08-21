@@ -3,8 +3,7 @@
 // Discovers every folder under src/modules/*, each exporting a single shape:
 //
 //   module.exports = {
-//     name: 'moderation',
-//     core: false,        // core:true modules keep working even without a valid license
+//     name: 'tickets',
 //     initSchema: async (pool) => {...},          // optional
 //     commands: [{ data, execute, autocomplete? }, ...],   // optional
 //     events:   [{ name, once?, execute }, ...],            // optional, NEVER InteractionCreate
@@ -44,12 +43,9 @@ async function initModuleSchemas(pool) {
   }
 }
 
-// Registers every module's slash commands on the client and returns the set
-// of command names that belong to `core:true` modules (these bypass the
-// license gate in the interaction router).
+// Registers every module's slash commands on the client.
 function loadCommands(client) {
   client.commands = new Collection();
-  const coreCommandNames = new Set();
 
   for (const { name, mod } of getModules()) {
     for (const command of mod.commands ?? []) {
@@ -58,17 +54,14 @@ function loadCommands(client) {
         continue;
       }
       client.commands.set(command.data.name, command);
-      if (mod.core) coreCommandNames.add(command.data.name);
     }
   }
-
-  return coreCommandNames;
 }
 
 // Registers every module's non-InteractionCreate events directly on the
 // client. InteractionCreate is intentionally excluded: it needs a single
-// central listener (see core/interactionRouter.js) so the license gate and
-// command dispatch happen exactly once, in one place, for every module.
+// central listener (see core/interactionRouter.js) so command dispatch
+// happens exactly once, in one place, for every module.
 function loadEvents(client) {
   for (const { name, mod } of getModules()) {
     for (const event of mod.events ?? []) {

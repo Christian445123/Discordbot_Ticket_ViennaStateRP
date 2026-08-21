@@ -13,7 +13,6 @@ const { component } = require('./component');
 
 module.exports = {
   name: 'tickets',
-  core: false,
   initSchema: db.initSchema,
   commands: [close, kategorieConfig, kategorie, panel, setup],
   events: [messageCreate],

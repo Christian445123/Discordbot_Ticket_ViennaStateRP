@@ -167,10 +167,10 @@ async function createTicketChannel(interaction, category, subject) {
 }
 
 // ── Component handler (buttons/selects/modals) ────────────────────────────────
-// Slash-command dispatch, autocomplete and the license gate are handled
-// centrally by src/core/interactionRouter.js — this only ever sees
-// buttons/selects/modals, and only reacts to the "ticket_"/"close_"/
-// "cancel_close"/"confirm_close_" customIds it owns.
+// Slash-command dispatch and autocomplete are handled centrally by
+// src/core/interactionRouter.js — this only ever sees buttons/selects/
+// modals, and only reacts to the "ticket_"/"close_"/"cancel_close"/
+// "confirm_close_" customIds it owns.
 async function component(interaction) {
 
     // ── Category select menu (from panel) ───────────────────────────────────

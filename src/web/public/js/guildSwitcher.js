@@ -1,8 +1,8 @@
 'use strict';
 
-// Shared by every dashboard page. Most deployments only ever have one
-// licensed guild, in which case this quietly does nothing — the server
-// already falls back to DISCORD_GUILD_ID when no ?guild= param is present.
+// Shared by every admin page. Most deployments only ever have one guild, in
+// which case this quietly does nothing — the server already falls back to
+// DISCORD_GUILD_ID when no ?guild= param is present.
 
 const GUILD_STORAGE_KEY = 'selectedGuildId';
 
@@ -53,24 +53,6 @@ async function initGuildSwitcher(containerId) {
   } catch { /* ignore — single-guild deployments never hit this */ }
 }
 
-// Shows a dismissible banner on every admin page when the current guild has
-// no valid license, so admins notice before wondering why the category/
-// ticket API calls are failing with 403s.
-async function initLicenseBanner() {
-  try {
-    const res = await apiFetch('/api/license/status');
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.activated && data.valid) return;
-
-    const banner = document.createElement('div');
-    banner.className = 'alert alert-warning rounded-0 mb-0 text-center small py-2';
-    banner.innerHTML = `⚠️ Keine gültige Lizenz für diesen Server. <a href="/admin#license" class="alert-link">Jetzt aktivieren</a>.`;
-    document.body.prepend(banner);
-  } catch { /* ignore */ }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   initGuildSwitcher('guildSwitcher');
-  initLicenseBanner();
 });

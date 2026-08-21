@@ -39,15 +39,14 @@ function createWebServer(discordClient) {
 
   const apiRouter = express.Router();
 
-  // Every /api route requires a session; which guild the request is about,
-  // whether that guild's license is valid, and whether the user is a real
-  // Discord Administrator on it follow — every module route runs behind all
-  // three except the identity/guild-picker/license endpoints (see
-  // guildContext.js for the allowlist). The web interface is admin-only.
+  // Every /api route requires a session; which guild the request is about
+  // and whether the user is a real Discord Administrator on it follow —
+  // every module route runs behind both except the identity/guild-picker
+  // endpoints (see guildContext.js for the allowlist). The web interface is
+  // admin-only.
   apiRouter.use(
     guildContext.requireAuth,
     guildContext.resolveGuildId,
-    guildContext.requireLicense,
     guildContext.requireGuildAdmin(discordClient),
   );
 

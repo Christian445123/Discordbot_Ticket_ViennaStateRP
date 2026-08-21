@@ -45,9 +45,6 @@
         <button class="tab-btn" onclick="switchTab('tickets')" id="tab-tickets">
           <i class="bi bi-ticket-perforated-fill me-1"></i>Tickets
         </button>
-        <button class="tab-btn" onclick="switchTab('license')" id="tab-license">
-          <i class="bi bi-key-fill me-1"></i>Lizenz
-        </button>
       </div>
 
       <!-- ── Categories tab ─────────────────────────────────────────────────── -->
@@ -123,72 +120,6 @@
         </div>
         <div id="emptyHint" class="text-center text-muted mt-4 py-3 d-none">
           <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>Keine Tickets gefunden.
-        </div>
-      </div>
-
-      <!-- ── License tab ────────────────────────────────────────────────────── -->
-      <div id="pane-license" class="d-none" style="max-width:640px">
-        <div class="card bg-dark-card border-0 shadow-sm mb-4">
-          <div class="card-body" id="statusCard">
-            <div class="text-muted small"><div class="spinner-border spinner-border-sm me-2"></div>Lade Status…</div>
-          </div>
-        </div>
-
-        <div class="card bg-dark-card border-0 shadow-sm">
-          <div class="card-body">
-            <h6 class="fw-semibold mb-3">Lizenzschlüssel aktivieren</h6>
-            <div id="activateAlert" class="alert d-none mb-3"></div>
-            <div class="input-group">
-              <input type="text" id="activateKey" class="form-control" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" />
-              <button class="btn btn-primary" id="activateBtn" onclick="activateLicense()">
-                <i class="bi bi-check-lg me-1"></i>Aktivieren
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Bot-Admin only: cross-guild license management -->
-        <div id="licenseAdminSection" class="d-none mt-5">
-          <h5 class="mb-3 fw-semibold"><i class="bi bi-shield-lock-fill text-primary me-2"></i>Lizenzverwaltung (Bot-Administrator)</h5>
-
-          <div class="card bg-dark-card border-0 shadow-sm mb-3">
-            <div class="card-body">
-              <h6 class="fw-semibold mb-3">Neue Lizenz erstellen</h6>
-              <div id="createLicenseAlert" class="alert d-none mb-3"></div>
-              <div class="row g-2 align-items-end">
-                <div class="col-md-5">
-                  <label class="form-label text-muted small">Label (optional)</label>
-                  <input type="text" id="createLabel" class="form-control form-control-sm" placeholder="z.B. Kunde XY" />
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label text-muted small">Max. Server</label>
-                  <input type="number" id="createMaxGuilds" class="form-control form-control-sm" value="1" min="1" />
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label text-muted small">Gültig (Tage, leer=unbefristet)</label>
-                  <input type="number" id="createDays" class="form-control form-control-sm" min="1" />
-                </div>
-                <div class="col-md-1">
-                  <button class="btn btn-primary btn-sm w-100" onclick="createLicense()"><i class="bi bi-plus-lg"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card bg-dark-card border-0 shadow-sm">
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-dark table-hover align-middle mb-0">
-                  <thead>
-                    <tr><th>Key</th><th>Label</th><th>Status</th><th>Server</th><th>Läuft ab</th><th></th></tr>
-                  </thead>
-                  <tbody id="licensesTableBody">
-                    <tr><td colspan="6" class="text-center text-muted py-4">Lade…</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

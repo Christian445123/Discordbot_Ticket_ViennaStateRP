@@ -4,44 +4,18 @@
 // Every module contributes commands (via client.commands, populated in
 // moduleLoader.loadCommands) and optionally a `component` handler for
 // buttons/selects/modals — this file is the only place that actually
-// listens to the raw Discord event, so the license gate (added once the
-// license module exists) and error handling only have to live in one spot.
+// listens to the raw Discord event, so dispatch and error handling only
+// have to live in one spot.
 
 const { Events } = require('discord.js');
 const moduleLoader = require('./moduleLoader');
-const guards       = require('./guards');
 const logger        = require('../utils/logger');
 
 function register(client) {
-  const coreCommandNames = new Set();
-  for (const { mod } of moduleLoader.getModules()) {
-    if (!mod.core) continue;
-    for (const command of mod.commands ?? []) coreCommandNames.add(command.data.name);
-  }
   const componentHandlers = moduleLoader.collectComponentHandlers();
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
-      const commandName = (interaction.isChatInputCommand() || interaction.isAutocomplete())
-        ? interaction.commandName
-        : null;
-      const bypassLicense = Boolean(commandName && coreCommandNames.has(commandName))
-        || guards.isSuperAdmin(interaction.user.id); // bot owner: full access everywhere
-
-      if (interaction.guildId && !bypassLicense) {
-        const valid = await guards.requireLicenseSilent(interaction.guildId);
-        if (!valid) {
-          if (interaction.isAutocomplete()) return interaction.respond([]);
-          if (interaction.isRepliable()) {
-            return interaction.reply({
-              content: '❌ Für diesen Server liegt keine gültige Lizenz vor. Ein Server-Admin kann den Status mit `/lizenz status` prüfen.',
-              ephemeral: true,
-            }).catch(() => {});
-          }
-          return;
-        }
-      }
-
       if (interaction.isAutocomplete()) {
         const command = client.commands.get(interaction.commandName);
         if (!command?.autocomplete) return;

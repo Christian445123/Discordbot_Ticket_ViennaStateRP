@@ -1,13 +1,12 @@
 'use strict';
 
 // Admin-only web API: the entire /api router this mounts under already runs
-// behind requireAuth + requireLicense + requireGuildAdmin (see
-// src/web/guildContext.js and src/web/server.js), so every handler below can
-// assume "logged in, valid license, real Discord Administrator on this
-// guild" without re-checking it itself. Covers two things: category +
-// automatic-message management, and a read-only ticket overview (no chat,
-// no create/close/category-change from the web — that stays a Discord-side
-// ticket flow, see component.js).
+// behind requireAuth + requireGuildAdmin (see src/web/guildContext.js and
+// src/web/server.js), so every handler below can assume "logged in, real
+// Discord Administrator on this guild" without re-checking it itself. Covers
+// two things: category + automatic-message management, and a read-only
+// ticket overview (no chat, no create/close/category-change from the web —
+// that stays a Discord-side ticket flow, see component.js).
 
 const express   = require('express');
 const db        = require('./db');

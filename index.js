@@ -4,7 +4,6 @@ require('dotenv').config();
 
 const db                  = require('./src/core/db');
 const { createClient }    = require('./src/core/client');
-const licenseService      = require('./src/core/license/licenseService');
 const { createWebServer } = require('./src/web/server');
 const logger              = require('./src/utils/logger');
 
@@ -20,11 +19,6 @@ const client = createClient();
     logger.error('❌ Datenbankverbindung fehlgeschlagen:', err.message);
     process.exit(1);
   }
-
-  // ── License bootstrap (idempotent: seeds a license for the guild already
-  // configured via DISCORD_GUILD_ID so an existing deployment isn't locked
-  // out the moment license enforcement goes live) ─────────────────────────────
-  await licenseService.bootstrap().catch(err => logger.error('Lizenz-Bootstrap fehlgeschlagen:', err.message));
 
   // ── Start web server ────────────────────────────────────────────────────────
   // Pass the Discord client so API routes can interact with Discord
