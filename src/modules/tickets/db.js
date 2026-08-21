@@ -117,11 +117,11 @@ async function updateGuild(guildId, data) {
 
 // ── Category helpers ──────────────────────────────────────────────────────────
 const DEFAULT_CATEGORIES = [
-  { name: 'Support',     emoji: '🛠️' },
-  { name: 'Bug-Report',  emoji: '🐛' },
-  { name: 'Bewerbung',   emoji: '📋' },
-  { name: 'Beschwerde',  emoji: '⚠️' },
-  { name: 'Allgemein',   emoji: '💬' },
+  { name: 'Support',     emoji: '🛠️', description: 'Allgemeine Fragen und Hilfe bei Problemen' },
+  { name: 'Bug-Report',  emoji: '🐛', description: 'Einen Fehler oder Bug melden' },
+  { name: 'Bewerbung',   emoji: '📋', description: 'Bewerbung fürs Team einreichen' },
+  { name: 'Beschwerde',  emoji: '⚠️', description: 'Eine Beschwerde oder ein Anliegen melden' },
+  { name: 'Allgemein',   emoji: '💬', description: 'Sonstige Anliegen, die nirgendwo anders reinpassen' },
 ];
 
 async function getCategories(guildId) {
@@ -198,20 +198,26 @@ async function seedDefaultCategories(guildId) {
   const { count } = await getCategoryCount(guildId);
   if (count > 0) return;
   for (const [i, c] of DEFAULT_CATEGORIES.entries()) {
-    await insertCategory({ guild_id: guildId, name: c.name, emoji: c.emoji, sort_order: i });
+    await insertCategory({ guild_id: guildId, name: c.name, emoji: c.emoji, description: c.description, sort_order: i });
   }
 }
 
 // Guilds created before welcome/auto messages became mandatory (or a
 // category that had its text explicitly cleared) can still have NULL
 // columns — top up any category still missing either one with a generated
-// default, same as insertCategory/updateCategory do for new writes.
-async function backfillCategoryMessages(guildId) {
+// default, same as insertCategory/updateCategory do for new writes. Default
+// categories (matched by name) that predate auto-generated descriptions get
+// their description filled in the same way.
+async function backfillCategoryDefaults(guildId) {
+  const defaultDescriptionByName = new Map(DEFAULT_CATEGORIES.map(c => [c.name, c.description]));
   const categories = await getCategories(guildId);
   for (const c of categories) {
     const updates = {};
     if (!c.welcome_message) updates.welcome_message = null;
     if (!c.auto_message)    updates.auto_message    = null;
+    if (!c.description && defaultDescriptionByName.has(c.name)) {
+      updates.description = defaultDescriptionByName.get(c.name);
+    }
     if (Object.keys(updates).length) await updateCategory(guildId, c.name, updates);
   }
 }
@@ -222,7 +228,7 @@ async function backfillCategoryMessages(guildId) {
 async function ensureGuildWithDefaults(guildId) {
   await ensureGuild(guildId);
   await seedDefaultCategories(guildId);
-  await backfillCategoryMessages(guildId);
+  await backfillCategoryDefaults(guildId);
 }
 
 // ── Ticket helpers ────────────────────────────────────────────────────────────
