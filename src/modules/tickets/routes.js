@@ -8,11 +8,14 @@
 // ticket overview (no chat, no create/close/category-change from the web —
 // that stays a Discord-side ticket flow, see component.js).
 
-const express   = require('express');
-const db        = require('./db');
-const ticketLog = require('./ticketLog');
-const guards    = require('../../core/guards');
-const logger    = require('../../utils/logger');
+const express      = require('express');
+const { ChannelType } = require('discord.js');
+const db           = require('./db');
+const ticketLog    = require('./ticketLog');
+const questionsMod = require('./questions');
+const panelBuilder = require('./panelBuilder');
+const guards       = require('../../core/guards');
+const logger       = require('../../utils/logger');
 
 function escHtml(str) {
   return String(str ?? '')
@@ -103,6 +106,25 @@ module.exports = function apiRoutes(discordClient) {
     res.json(await db.getStats(guildId));
   });
 
+  // ── Global workload overview ("Auslastung") ─────────────────────────────────
+  router.get('/workload', async (req, res) => {
+    const guildId = req.guildId;
+    await db.ensureGuildWithDefaults(guildId);
+
+    const [stats, categories, openCounts, avgResolutionMinutes] = await Promise.all([
+      db.getStats(guildId),
+      db.getCategories(guildId),
+      db.getOpenCountsByCategory(guildId),
+      db.getAvgResolutionMinutes(guildId),
+    ]);
+    const openByName = Object.fromEntries(openCounts.map(c => [c.category, c.open_count]));
+    const byCategory = categories.map(c => ({
+      name: c.name, emoji: c.emoji, open_count: openByName[c.name] ?? 0,
+    }));
+
+    res.json({ ...stats, avgResolutionMinutes, byCategory });
+  });
+
   // ── Tickets: read-only overview ─────────────────────────────────────────────
   router.get('/tickets', async (req, res) => {
     const guildId = req.guildId;
@@ -178,7 +200,11 @@ module.exports = function apiRoutes(discordClient) {
         db.getOpenCountsByCategory(guildId),
       ]);
       const countByName = Object.fromEntries(counts.map(c => [c.category, c.open_count]));
-      res.json(categories.map(c => ({ ...c, open_count: countByName[c.name] ?? 0 })));
+      res.json(categories.map(c => ({
+        ...c,
+        open_count: countByName[c.name] ?? 0,
+        questions:  questionsMod.parseStoredQuestions(c.questions),
+      })));
     } catch (err) {
       logger.error('Admin categories error:', err.message);
       res.status(500).json({ error: 'Fehler beim Laden der Kategorien' });
@@ -195,6 +221,7 @@ module.exports = function apiRoutes(discordClient) {
       }
 
       const { count } = await db.getCategoryCount(guildId);
+      const sanitizedQuestions = questionsMod.sanitizeQuestions(req.body.questions);
       await db.insertCategory({
         guild_id: guildId,
         name,
@@ -206,6 +233,7 @@ module.exports = function apiRoutes(discordClient) {
         auto_message:          req.body.auto_message || null,
         auto_message_channel:  req.body.auto_message_channel ? 1 : 0,
         auto_message_dm:       req.body.auto_message_dm ? 1 : 0,
+        questions:             sanitizedQuestions ? JSON.stringify(sanitizedQuestions) : null,
         sort_order:            count,
       });
 
@@ -237,6 +265,13 @@ module.exports = function apiRoutes(discordClient) {
       // individual-user pings — that stays a /kategorie-config-only option).
       if (Object.prototype.hasOwnProperty.call(updates, 'ping_target_id')) {
         updates.ping_type = updates.ping_target_id ? 'role' : null;
+      }
+      // questions is an array in the request body, not a plain string field —
+      // handled separately from the generic `allowed` loop above. An empty/
+      // missing array clears it back to the default Betreff/Beschreibung form.
+      if (Object.prototype.hasOwnProperty.call(req.body, 'questions')) {
+        const sanitizedQuestions = questionsMod.sanitizeQuestions(req.body.questions);
+        updates.questions = sanitizedQuestions ? JSON.stringify(sanitizedQuestions) : null;
       }
       if (Object.keys(updates).length === 0)
         return res.status(400).json({ error: 'Keine Felder angegeben' });
@@ -283,6 +318,68 @@ module.exports = function apiRoutes(discordClient) {
       .sort((a, b) => b.position - a.position)
       .map(r => ({ id: r.id, name: r.name }));
     res.json(roles);
+  });
+
+  // ── Ticket panel: where it's posted, and posting/refreshing it ─────────────
+  router.get('/admin/guild-channels', async (req, res) => {
+    const guild = discordClient.guilds.cache.get(req.guildId);
+    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+    const channels = guild.channels.cache
+      .filter(c => c.type === ChannelType.GuildText)
+      .sort((a, b) => a.position - b.position)
+      .map(c => ({ id: c.id, name: c.name }));
+    res.json(channels);
+  });
+
+  router.get('/admin/panel', async (req, res) => {
+    const guildCfg = await db.getGuild(req.guildId);
+    res.json({
+      channelId: guildCfg?.panel_channel_id ?? null,
+      messageId: guildCfg?.panel_message_id ?? null,
+    });
+  });
+
+  router.post('/admin/panel/send', async (req, res) => {
+    const guild = discordClient.guilds.cache.get(req.guildId);
+    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+    const channelId = req.body.channelId;
+    const channel    = channelId && guild.channels.cache.get(channelId);
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      return res.status(400).json({ error: 'Ungültiger Kanal' });
+    }
+
+    try {
+      await db.ensureGuildWithDefaults(req.guildId);
+      const payload = await panelBuilder.buildPanelPayload(guild);
+      const message = await channel.send(payload);
+      await db.updateGuild(req.guildId, { panel_channel_id: channel.id, panel_message_id: message.id });
+      res.json({ success: true, channelId: channel.id });
+    } catch (err) {
+      logger.error('Panel senden (Web) fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Panel konnte nicht gesendet werden' });
+    }
+  });
+
+  router.post('/admin/panel/refresh', async (req, res) => {
+    const guild = discordClient.guilds.cache.get(req.guildId);
+    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+    const guildCfg = await db.getGuild(req.guildId);
+    if (!guildCfg?.panel_channel_id || !guildCfg?.panel_message_id) {
+      return res.status(400).json({ error: 'Es wurde noch kein Panel gesendet' });
+    }
+
+    try {
+      const channel = await guild.channels.fetch(guildCfg.panel_channel_id);
+      const message = await channel.messages.fetch(guildCfg.panel_message_id);
+      await message.edit(await panelBuilder.buildPanelPayload(guild));
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Panel aktualisieren (Web) fehlgeschlagen:', err.message);
+      res.status(404).json({ error: `Panel konnte nicht aktualisiert werden (wurde es gelöscht?): ${err.message}` });
+    }
   });
 
   return router;

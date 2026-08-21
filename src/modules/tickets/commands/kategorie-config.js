@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db        = require('../db');
 const ticketLog = require('../ticketLog');
+const questions = require('../questions');
 
 function pingMention(c) {
   if (c.ping_type === 'role') return `<@&${c.ping_target_id}>`;
@@ -26,7 +27,9 @@ function categoryEmbed(title, c) {
     .addFields(
       { name: 'Name',                    value: `${c.emoji} ${c.name}`,               inline: true },
       { name: 'Ping-Ziel',                value: pingMention(c),                       inline: true },
+      { name: 'Fragen',                   value: questions.describeQuestions(c.questions), inline: false },
       { name: 'Beschreibung',             value: c.description || '_keine_',           inline: false },
+      { name: 'Willkommensnachricht',     value: c.welcome_message || '_keine_',       inline: false },
       { name: 'Automatische Nachricht',   value: c.auto_message || '_keine_',          inline: false },
     );
 }
@@ -44,9 +47,11 @@ module.exports = {
       .addStringOption(opt => opt.setName('beschreibung').setDescription('Kurzbeschreibung, wird im Panel angezeigt').setRequired(false).setMaxLength(200))
       .addRoleOption(opt => opt.setName('ping_rolle').setDescription('Rolle, die bei neuen Tickets dieser Kategorie gepingt wird').setRequired(false))
       .addUserOption(opt => opt.setName('ping_user').setDescription('Alternativ: einzelne Person statt einer Rolle pingen').setRequired(false))
-      .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Automatische Nachricht bei Ticket-Erstellung').setRequired(false).setMaxLength(1000))
+      .addStringOption(opt => opt.setName('willkommensnachricht').setDescription('Nachricht im Ticket-Embed beim Öffnen (leer = automatisch generiert)').setRequired(false).setMaxLength(2000))
+      .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Automatische Zusatznachricht bei Ticket-Erstellung (leer = automatisch generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Ticket-Kanal senden (Standard: ja)').setRequired(false))
-      .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht zusätzlich per DM senden (Standard: nein)').setRequired(false)))
+      .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht zusätzlich per DM senden (Standard: nein)').setRequired(false))
+      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen fürs Ticket-Formular, getrennt mit ";" (max. 5, ersetzt Betreff/Beschreibung)').setRequired(false).setMaxLength(500)))
     .addSubcommand(sub => sub
       .setName('bearbeiten')
       .setDescription('Bearbeitet eine bestehende Kategorie')
@@ -55,9 +60,11 @@ module.exports = {
       .addStringOption(opt => opt.setName('beschreibung').setDescription('Neue Beschreibung').setRequired(false).setMaxLength(200))
       .addRoleOption(opt => opt.setName('ping_rolle').setDescription('Neue Ping-Rolle').setRequired(false))
       .addUserOption(opt => opt.setName('ping_user').setDescription('Neue Ping-Person (überschreibt Ping-Rolle)').setRequired(false))
-      .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Neue automatische Nachricht').setRequired(false).setMaxLength(1000))
+      .addStringOption(opt => opt.setName('willkommensnachricht').setDescription('Neue Willkommensnachricht (leer = automatisch neu generiert)').setRequired(false).setMaxLength(2000))
+      .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Neue automatische Nachricht (leer = automatisch neu generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Kanal senden?').setRequired(false))
-      .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht per DM senden?').setRequired(false)))
+      .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht per DM senden?').setRequired(false))
+      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen, getrennt mit ";" (max. 5) — "-" setzt auf Standard-Formular zurück').setRequired(false).setMaxLength(500)))
     .addSubcommand(sub => sub
       .setName('entfernen')
       .setDescription('Entfernt eine Kategorie')
@@ -93,6 +100,7 @@ module.exports = {
       const autoImKanalOpt = interaction.options.getBoolean('auto_im_kanal');
       const autoImKanal    = autoImKanalOpt === null ? true : autoImKanalOpt;
       const { count }      = await db.getCategoryCount(guildId);
+      const parsedQuestions = questions.parseDelimitedQuestions(interaction.options.getString('fragen'));
 
       await db.insertCategory({
         guild_id:              guildId,
@@ -101,9 +109,11 @@ module.exports = {
         description:           interaction.options.getString('beschreibung') || '',
         ping_type:             ping.pingType,
         ping_target_id:        ping.pingTargetId,
+        welcome_message:       interaction.options.getString('willkommensnachricht') || null,
         auto_message:          interaction.options.getString('auto_nachricht') || null,
         auto_message_channel:  autoImKanal ? 1 : 0,
         auto_message_dm:       interaction.options.getBoolean('auto_als_dm') ? 1 : 0,
+        questions:             parsedQuestions ? JSON.stringify(parsedQuestions) : null,
         sort_order:            count,
       });
 
@@ -123,19 +133,27 @@ module.exports = {
       const ping = resolvePingTarget(interaction);
       if (ping.error) return interaction.reply({ content: ping.error, ephemeral: true });
 
-      const emoji          = interaction.options.getString('emoji');
-      const beschreibung    = interaction.options.getString('beschreibung');
-      const autoNachricht   = interaction.options.getString('auto_nachricht');
-      const autoImKanalOpt  = interaction.options.getBoolean('auto_im_kanal');
-      const autoAlsDmOpt    = interaction.options.getBoolean('auto_als_dm');
+      const emoji           = interaction.options.getString('emoji');
+      const beschreibung     = interaction.options.getString('beschreibung');
+      const willkommen       = interaction.options.getString('willkommensnachricht');
+      const autoNachricht    = interaction.options.getString('auto_nachricht');
+      const autoImKanalOpt   = interaction.options.getBoolean('auto_im_kanal');
+      const autoAlsDmOpt     = interaction.options.getBoolean('auto_als_dm');
+      const fragenRaw        = interaction.options.getString('fragen');
 
       const updates = {};
-      if (emoji !== null)         updates.emoji = emoji;
-      if (beschreibung !== null)  updates.description = beschreibung;
-      if (ping.pingGiven)         { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; }
-      if (autoNachricht !== null) updates.auto_message = autoNachricht;
+      if (emoji !== null)          updates.emoji = emoji;
+      if (beschreibung !== null)   updates.description = beschreibung;
+      if (ping.pingGiven)          { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; }
+      if (willkommen !== null)     updates.welcome_message = willkommen;
+      if (autoNachricht !== null)  updates.auto_message = autoNachricht;
       if (autoImKanalOpt !== null) updates.auto_message_channel = autoImKanalOpt ? 1 : 0;
       if (autoAlsDmOpt !== null)   updates.auto_message_dm = autoAlsDmOpt ? 1 : 0;
+      if (fragenRaw !== null) {
+        // "-" is the explicit "reset to the default Betreff/Beschreibung form" escape hatch
+        const parsedQuestions = fragenRaw.trim() === '-' ? null : questions.parseDelimitedQuestions(fragenRaw);
+        updates.questions = parsedQuestions ? JSON.stringify(parsedQuestions) : null;
+      }
 
       if (Object.keys(updates).length === 0) {
         return interaction.reply({ content: 'ℹ️ Keine Änderungen angegeben.', ephemeral: true });
@@ -181,7 +199,7 @@ module.exports = {
           : 'Nein';
         embed.addFields({
           name:  `${c.emoji} ${c.name}`,
-          value: `${c.description || '_keine Beschreibung_'}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto}`,
+          value: `${c.description || '_keine Beschreibung_'}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto}\nFragen: ${questions.describeQuestions(c.questions)}`,
         });
       });
     }

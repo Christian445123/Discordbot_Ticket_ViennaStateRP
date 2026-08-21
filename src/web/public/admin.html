@@ -45,6 +45,9 @@
         <button class="tab-btn" onclick="switchTab('tickets')" id="tab-tickets">
           <i class="bi bi-ticket-perforated-fill me-1"></i>Tickets
         </button>
+        <button class="tab-btn" onclick="switchTab('panel')" id="tab-panel">
+          <i class="bi bi-easel-fill me-1"></i>Panel
+        </button>
       </div>
 
       <!-- ── Categories tab ─────────────────────────────────────────────────── -->
@@ -80,6 +83,19 @@
             <div class="stat-card stat-closed">
               <div><div class="stat-label">Geschlossen</div><div class="stat-value" id="statClosed">–</div></div>
               <i class="bi bi-lock-fill stat-icon"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Global workload overview -->
+        <div class="card bg-dark-card border-0 shadow-sm mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h6 class="fw-semibold mb-0"><i class="bi bi-speedometer2 text-primary me-2"></i>Auslastung</h6>
+              <span class="text-muted small" id="workloadAvgResolution">–</span>
+            </div>
+            <div id="workloadBars">
+              <p class="text-muted small mb-0">Lade…</p>
             </div>
           </div>
         </div>
@@ -120,6 +136,36 @@
         </div>
         <div id="emptyHint" class="text-center text-muted mt-4 py-3 d-none">
           <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>Keine Tickets gefunden.
+        </div>
+      </div>
+
+      <!-- ── Panel tab ──────────────────────────────────────────────────────── -->
+      <div id="pane-panel" class="d-none" style="max-width:640px">
+        <div class="card bg-dark-card border-0 shadow-sm mb-4">
+          <div class="card-body" id="panelStatusCard">
+            <div class="text-muted small"><div class="spinner-border spinner-border-sm me-2"></div>Lade Status…</div>
+          </div>
+        </div>
+
+        <div class="card bg-dark-card border-0 shadow-sm">
+          <div class="card-body">
+            <h6 class="fw-semibold mb-3">Panel-Kanal wählen</h6>
+            <p class="text-muted small">
+              Das Ticket-Panel (Kategorie-Dropdown zum Ticket-Erstellen) wird in den gewählten Kanal gepostet.
+            </p>
+            <div id="panelAlert" class="alert d-none mb-3"></div>
+            <div class="input-group mb-3">
+              <select id="panelChannelSelect" class="form-select">
+                <option value="">Kanal wählen…</option>
+              </select>
+              <button class="btn btn-primary" id="panelSendBtn" onclick="sendPanel()">
+                <i class="bi bi-send-fill me-1"></i>Senden
+              </button>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="panelRefreshBtn" onclick="refreshPanel()" disabled>
+              <i class="bi bi-arrow-clockwise me-1"></i>Bestehendes Panel aktualisieren
+            </button>
+          </div>
         </div>
       </div>
 
@@ -167,6 +213,17 @@
             <label class="form-label text-muted small">Automatische Nachricht <span class="text-muted">(wird als separate Nachricht nach der Begrüßung gesendet)</span></label>
             <textarea id="catEditAutoMsg" class="form-control" rows="3"
               placeholder="z. B. Für Spenden bitte diesen Link verwenden: …" maxlength="1000"></textarea>
+          </div>
+          <div class="mb-3">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <label class="form-label text-muted small mb-0">
+                Eigene Fragen <span class="text-muted">(werden statt Betreff/Beschreibung im Ticket-Formular abgefragt, max. 5 – leer = Standard-Formular)</span>
+              </label>
+              <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0 ms-2" onclick="addQuestionRow()">
+                <i class="bi bi-plus-lg"></i>
+              </button>
+            </div>
+            <div id="catEditQuestions"></div>
           </div>
           <div class="d-flex gap-4">
             <div class="form-check form-switch">

@@ -14,6 +14,7 @@ const {
 const db             = require('./db');
 const ticketLog      = require('./ticketLog');
 const categoryNotify = require('./categoryNotify');
+const questions      = require('./questions');
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
@@ -122,16 +123,19 @@ async function createTicketChannel(interaction, category, subject) {
 
   // Welcome embed + close button
   const embed = new EmbedBuilder()
-    .setTitle(`${categoryCfg?.emoji || '🎫'} ${category} | Ticket`)
+    .setAuthor({ name: `${categoryCfg?.emoji || '🎫'} ${category}` })
+    .setTitle('🎫 Ticket eröffnet')
     .setDescription(categoryCfg?.welcome_message || 'Willkommen! Ein Teammitglied wird sich bald melden.')
     .setColor(0x5865F2)
     .addFields(
-      { name: 'Erstellt von', value: `${user}`,   inline: true },
-      { name: 'Kategorie',    value: category,     inline: true },
-      { name: 'Betreff',      value: subject || '(kein Betreff)', inline: false },
+      { name: '👤 Erstellt von', value: `${user}`,  inline: true },
+      { name: '🏷️ Kategorie',    value: category,    inline: true },
+      { name: '📌 Status',       value: '🟢 Offen',  inline: true },
+      { name: '📝 Angaben',      value: subject || '(keine Angaben)', inline: false },
     )
-    .setTimestamp()
-    .setFooter({ text: 'Support-System' });
+    .setThumbnail(guild.iconURL() ?? null)
+    .setFooter({ text: `Ticket #${String(ticket_count).padStart(4, '0')} · Support-System` })
+    .setTimestamp();
 
   const closeBtn = new ButtonBuilder()
     .setCustomId('close_ticket')
@@ -143,7 +147,7 @@ async function createTicketChannel(interaction, category, subject) {
 
   const pingMention = categoryNotify.buildPingMention(categoryCfg);
   await channel.send({
-    content: `${user} Willkommen! Ein Teammitglied wird sich bald melden.${pingMention ? ` ${pingMention}` : ''}`,
+    content: `${user}${pingMention ? ` ${pingMention}` : ''}`,
     embeds: [embed],
     components: [row],
   });
@@ -174,33 +178,26 @@ async function createTicketChannel(interaction, category, subject) {
 async function component(interaction) {
 
     // ── Category select menu (from panel) ───────────────────────────────────
+    // Each category can define up to 5 of its own questions (see
+    // src/modules/tickets/questions.js); categories without custom
+    // questions fall back to the classic Betreff/Beschreibung pair.
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_category') {
-      const category = interaction.values[0];
+      const category    = interaction.values[0];
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, category);
+      const qs           = questions.resolveQuestions(categoryCfg);
 
       const modal = new ModalBuilder()
         .setCustomId(`ticket_modal_${category}`)
         .setTitle('Ticket erstellen');
 
-      const subjectInput = new TextInputBuilder()
-        .setCustomId('ticket_subject')
-        .setLabel('Betreff')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Kurze Beschreibung deines Anliegens')
-        .setRequired(true)
-        .setMaxLength(100);
-
-      const descInput = new TextInputBuilder()
-        .setCustomId('ticket_description')
-        .setLabel('Beschreibung')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Beschreibe dein Anliegen so genau wie möglich…')
-        .setRequired(false)
-        .setMaxLength(1000);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(subjectInput),
-        new ActionRowBuilder().addComponents(descInput),
-      );
+      modal.addComponents(qs.map((q, i) => new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId(`ticket_q_${i}`)
+          .setLabel(q.label)
+          .setStyle(q.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+          .setRequired(q.required)
+          .setMaxLength(q.style === 'paragraph' ? 1000 : 100),
+      )));
 
       await interaction.showModal(modal);
       return;
@@ -209,11 +206,14 @@ async function component(interaction) {
     // ── Modal submit ────────────────────────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
       const category    = interaction.customId.replace('ticket_modal_', '');
-      const subject     = interaction.fields.getTextInputValue('ticket_subject');
-      const description = interaction.fields.getTextInputValue('ticket_description');
-      const fullSubject = description ? `${subject}\n\n${description}` : subject;
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, category);
+      const qs           = questions.resolveQuestions(categoryCfg);
+      const values       = qs.map((_, i) => {
+        try { return interaction.fields.getTextInputValue(`ticket_q_${i}`); } catch { return ''; }
+      });
+      const subject = questions.formatAnswers(qs, values);
 
-      await createTicketChannel(interaction, category, fullSubject);
+      await createTicketChannel(interaction, category, subject);
       return;
     }
 

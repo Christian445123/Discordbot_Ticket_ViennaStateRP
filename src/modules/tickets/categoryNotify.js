@@ -1,8 +1,7 @@
 'use strict';
 
 // Applies a category's configured ping target + automatic message when a new
-// ticket is created. Shared by the Discord-side and web-side creation flows
-// so both behave identically.
+// ticket is created (see component.js's createTicketChannel).
 
 const { EmbedBuilder } = require('discord.js');
 const db     = require('./db');
@@ -15,18 +14,24 @@ function buildPingMention(categoryCfg) {
   return null;
 }
 
+// Gold accent (distinct from the blurple welcome embed) marks this as the
+// automatic follow-up rather than the ticket's main welcome message.
+function autoMessageEmbed(categoryCfg) {
+  return new EmbedBuilder()
+    .setAuthor({ name: `${categoryCfg.emoji} ${categoryCfg.name}` })
+    .setTitle('📨 Automatische Nachricht')
+    .setDescription(categoryCfg.auto_message)
+    .setColor(0xFEE75C)
+    .setFooter({ text: 'ℹ️ Automatisch gesendet' });
+}
+
 async function applyCategoryExtras(discordClient, guildId, { categoryName, channel, userId }) {
   const categoryCfg = await db.getCategoryByName(guildId, categoryName);
   if (!categoryCfg?.auto_message) return;
 
   if (categoryCfg.auto_message_channel && channel) {
     try {
-      await channel.send({
-        embeds: [new EmbedBuilder()
-          .setTitle(`${categoryCfg.emoji} ${categoryCfg.name}`)
-          .setDescription(categoryCfg.auto_message)
-          .setColor(0x5865F2)],
-      });
+      await channel.send({ embeds: [autoMessageEmbed(categoryCfg)] });
     } catch (err) {
       logger.error('Automatische Kanal-Nachricht fehlgeschlagen:', err.message);
     }
@@ -35,7 +40,7 @@ async function applyCategoryExtras(discordClient, guildId, { categoryName, chann
   if (categoryCfg.auto_message_dm && userId) {
     try {
       const user = await discordClient.users.fetch(userId);
-      await user.send(`**${categoryCfg.emoji} ${categoryCfg.name}**\n${categoryCfg.auto_message}`);
+      await user.send({ embeds: [autoMessageEmbed(categoryCfg)] });
     } catch (err) {
       logger.error('Automatische DM fehlgeschlagen (evtl. DMs deaktiviert):', err.message);
     }

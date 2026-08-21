@@ -1,7 +1,7 @@
 'use strict';
 
 let currentUser  = null;
-let activeTab    = 'categories'; // 'categories' | 'tickets'
+let activeTab    = 'categories'; // 'categories' | 'tickets' | 'panel'
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -35,12 +35,13 @@ async function loadUser() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  ['categories', 'tickets'].forEach(t => {
+  ['categories', 'tickets', 'panel'].forEach(t => {
     document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
   });
   if (tab === 'categories') loadCategorySettings();
-  if (tab === 'tickets')    { loadStats(); loadTickets(); }
+  if (tab === 'tickets')    { loadStats(); loadWorkload(); loadTickets(); }
+  if (tab === 'panel')      loadPanelSettings();
 }
 
 // ── Categories & automatic messages ─────────────────────────────────────────
@@ -114,9 +115,61 @@ function renderCategoryCards() {
             <i class="bi bi-send me-1"></i>
             ${c.auto_message ? escapeHtml(c.auto_message.substring(0, 80)) + (c.auto_message.length > 80 ? '…' : '') : '<span class="fst-italic">Keine Auto-Nachricht</span>'}
           </p>
+          <p class="text-muted small mb-0 mt-1">
+            <i class="bi bi-list-check me-1"></i>
+            ${c.questions?.length ? `${c.questions.length} eigene Frage(n)` : 'Standard-Formular (Betreff, Beschreibung)'}
+          </p>
         </div>
       </div>
     </div>`).join('');
+}
+
+// ── Question editor (per-category ticket-creation questions) ─────────────────
+const MAX_QUESTIONS = 5;
+
+function questionRowHtml(q) {
+  q = q || {};
+  return `
+    <div class="row g-2 align-items-center mb-2 question-row">
+      <div class="col-6">
+        <input type="text" class="form-control form-control-sm q-label" maxlength="45" placeholder="Frage" value="${escapeHtml(q.label || '')}" />
+      </div>
+      <div class="col-3">
+        <select class="form-select form-select-sm q-style">
+          <option value="short" ${q.style !== 'paragraph' ? 'selected' : ''}>Kurz</option>
+          <option value="paragraph" ${q.style === 'paragraph' ? 'selected' : ''}>Absatz</option>
+        </select>
+      </div>
+      <div class="col-2 form-check form-switch">
+        <input class="form-check-input q-required" type="checkbox" ${q.required !== false ? 'checked' : ''} />
+        <label class="form-check-label small text-muted">Pflicht</label>
+      </div>
+      <div class="col-1 text-end">
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.question-row').remove()">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+function addQuestionRow(q) {
+  const container = document.getElementById('catEditQuestions');
+  if (container.children.length >= MAX_QUESTIONS) return;
+  container.insertAdjacentHTML('beforeend', questionRowHtml(q));
+}
+
+function renderQuestionRows(questionList) {
+  const container = document.getElementById('catEditQuestions');
+  container.innerHTML = '';
+  (questionList || []).forEach(q => addQuestionRow(q));
+}
+
+function collectQuestions() {
+  return Array.from(document.querySelectorAll('#catEditQuestions .question-row')).map(row => ({
+    label:    row.querySelector('.q-label').value.trim(),
+    style:    row.querySelector('.q-style').value,
+    required: row.querySelector('.q-required').checked,
+  })).filter(q => q.label);
 }
 
 function fillCategoryForm(c) {
@@ -129,6 +182,7 @@ function fillCategoryForm(c) {
   document.getElementById('catEditAutoChannel').checked = c ? !!c.auto_message_channel : true;
   document.getElementById('catEditAutoDm').checked      = c ? !!c.auto_message_dm : false;
   document.getElementById('catEditAlert').className     = 'alert d-none';
+  renderQuestionRows(c?.questions || []);
 }
 
 function openCategoryEdit(name) {
@@ -166,6 +220,7 @@ async function saveCategoryEdit() {
     auto_message:          document.getElementById('catEditAutoMsg').value.trim(),
     auto_message_channel:  document.getElementById('catEditAutoChannel').checked ? 1 : 0,
     auto_message_dm:       document.getElementById('catEditAutoDm').checked      ? 1 : 0,
+    questions:             collectQuestions(),
   };
   if (isNew) payload.name = document.getElementById('catEditNameInput').value.trim();
   if (isNew && !payload.name) {
@@ -247,6 +302,66 @@ async function loadStats() {
   } catch { /* ignore */ }
 }
 
+// ── Global workload overview ("Auslastung") ─────────────────────────────────
+function formatMinutes(minutes) {
+  if (minutes == null) return 'noch keine geschlossenen Tickets';
+  if (minutes < 60) return `${minutes} Min.`;
+  const hours = Math.floor(minutes / 60);
+  const rest  = minutes % 60;
+  if (hours < 24) return rest ? `${hours} Std. ${rest} Min.` : `${hours} Std.`;
+  const days     = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  return restHours ? `${days} Tag(e) ${restHours} Std.` : `${days} Tag(e)`;
+}
+
+function workloadBarColor(percent) {
+  if (percent > 75) return 'badge-load-violet';
+  if (percent > 50) return 'badge-load-red';
+  if (percent > 25) return 'badge-load-yellow';
+  return 'badge-load-green';
+}
+
+async function loadWorkload() {
+  const container = document.getElementById('workloadBars');
+  const avgEl      = document.getElementById('workloadAvgResolution');
+  try {
+    const res  = await apiFetch('/api/workload');
+    if (!res.ok) { container.innerHTML = '<p class="text-danger small mb-0">Fehler beim Laden.</p>'; return; }
+    const data = await res.json();
+
+    avgEl.textContent = `Ø Bearbeitungsdauer: ${formatMinutes(data.avgResolutionMinutes)}`;
+
+    const totalOpen = data.byCategory.reduce((sum, c) => sum + (c.open_count || 0), 0);
+    if (!data.byCategory.length) {
+      container.innerHTML = '<p class="text-muted small mb-0">Keine Kategorien konfiguriert.</p>';
+      return;
+    }
+    if (!totalOpen) {
+      container.innerHTML = '<p class="text-muted small mb-0">Aktuell keine offenen Tickets.</p>';
+      return;
+    }
+
+    container.innerHTML = data.byCategory
+      .filter(c => c.open_count > 0)
+      .sort((a, b) => b.open_count - a.open_count)
+      .map(c => {
+        const percent = Math.round((c.open_count / totalOpen) * 100);
+        return `
+          <div class="mb-2">
+            <div class="d-flex justify-content-between small mb-1">
+              <span>${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</span>
+              <span class="text-muted">${c.open_count} offen · ${percent}%</span>
+            </div>
+            <div class="progress" style="height:6px;background-color:var(--bg-dark)">
+              <div class="progress-bar ${workloadBarColor(percent)}" style="width:${percent}%;background-color:currentColor"></div>
+            </div>
+          </div>`;
+      }).join('');
+  } catch {
+    container.innerHTML = '<p class="text-danger small mb-0">Netzwerkfehler.</p>';
+  }
+}
+
 async function loadTickets() {
   const tbody = document.getElementById('ticketTableBody');
   tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">
@@ -309,6 +424,94 @@ function renderTicketTable() {
 document.getElementById('searchInput').addEventListener('input', renderTicketTable);
 document.getElementById('statusFilter').addEventListener('change', renderTicketTable);
 document.getElementById('categoryFilter').addEventListener('change', renderTicketTable);
+
+// ── Panel: choose & send/refresh the ticket-creation panel ─────────────────────
+async function loadPanelSettings() {
+  const statusCard = document.getElementById('panelStatusCard');
+  const select      = document.getElementById('panelChannelSelect');
+  const refreshBtn  = document.getElementById('panelRefreshBtn');
+
+  try {
+    const [channelsRes, panelRes] = await Promise.all([
+      apiFetch('/api/admin/guild-channels'),
+      apiFetch('/api/admin/panel'),
+    ]);
+    const channels = channelsRes.ok ? await channelsRes.json() : [];
+    const panel     = panelRes.ok ? await panelRes.json() : { channelId: null };
+
+    select.innerHTML = `<option value="">Kanal wählen…</option>` +
+      channels.map(c => `<option value="${c.id}" ${c.id === panel.channelId ? 'selected' : ''}>#${escapeHtml(c.name)}</option>`).join('');
+
+    if (panel.channelId) {
+      const channel = channels.find(c => c.id === panel.channelId);
+      statusCard.innerHTML = `
+        <div class="text-muted">
+          <i class="bi bi-check-circle-fill text-success me-2"></i>
+          Panel ist aktuell in ${channel ? `#${escapeHtml(channel.name)}` : 'einem Kanal (nicht mehr gefunden)'} gepostet.
+        </div>`;
+      refreshBtn.disabled = false;
+    } else {
+      statusCard.innerHTML = `
+        <div class="text-muted">
+          <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
+          Es wurde noch kein Panel gesendet.
+        </div>`;
+      refreshBtn.disabled = true;
+    }
+  } catch {
+    statusCard.innerHTML = '<div class="text-danger small">Netzwerkfehler.</div>';
+  }
+}
+
+async function sendPanel() {
+  const channelId = document.getElementById('panelChannelSelect').value;
+  const alertEl    = document.getElementById('panelAlert');
+  if (!channelId) { alertEl.className = 'alert alert-danger'; alertEl.textContent = 'Bitte einen Kanal wählen.'; return; }
+
+  const btn = document.getElementById('panelSendBtn');
+  btn.disabled = true;
+  try {
+    const res  = await apiFetch('/api/admin/panel/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className = 'alert alert-success';
+      alertEl.textContent = '✓ Panel gesendet.';
+      await loadPanelSettings();
+    } else {
+      alertEl.className = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler beim Senden.';
+    }
+  } catch {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function refreshPanel() {
+  const alertEl = document.getElementById('panelAlert');
+  const btn     = document.getElementById('panelRefreshBtn');
+  btn.disabled = true;
+  try {
+    const res  = await apiFetch('/api/admin/panel/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className = 'alert alert-success';
+      alertEl.textContent = '✓ Panel aktualisiert.';
+    } else {
+      alertEl.className = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler beim Aktualisieren.';
+    }
+  } catch {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler.';
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {

@@ -1,6 +1,7 @@
 'use strict';
 
 const core = require('../../core/db');
+const { ensureWelcomeMessage, ensureAutoMessage } = require('./messageTemplates');
 
 async function query(sql, params) {
   return core.query(sql, params);
@@ -36,12 +37,14 @@ async function initSchema(p) {
       auto_message          TEXT,
       auto_message_channel  TINYINT(1) DEFAULT 1,
       auto_message_dm       TINYINT(1) DEFAULT 0,
+      questions             TEXT,
       sort_order            INT DEFAULT 0,
       UNIQUE KEY uniq_guild_category (guild_id, name)
     ) ENGINE=InnoDB
   `);
-  // Migration: add welcome_message to existing tables
+  // Migrations: add columns introduced after the initial release
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS welcome_message TEXT DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS questions TEXT DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -135,18 +138,46 @@ async function getCategoryCount(guildId) {
   return rows[0];
 }
 
+// Fills in every column explicitly (rather than trusting the caller to pass
+// them all) so every insert point — command, web route, default seeding —
+// automatically gets non-empty welcome/auto messages without duplicating
+// that logic, and named placeholders never end up missing a value.
 async function insertCategory(data) {
+  const payload = {
+    guild_id:              data.guild_id,
+    name:                  data.name,
+    emoji:                 data.emoji ?? '🎫',
+    description:           data.description ?? '',
+    ping_type:             data.ping_type ?? null,
+    ping_target_id:        data.ping_target_id ?? null,
+    welcome_message:       ensureWelcomeMessage(data.name, data.welcome_message),
+    auto_message:          ensureAutoMessage(data.name, data.auto_message),
+    auto_message_channel:  data.auto_message_channel ?? 1,
+    auto_message_dm:       data.auto_message_dm ?? 0,
+    questions:             data.questions ?? null,
+    sort_order:            data.sort_order ?? 0,
+  };
   await query(`
     INSERT INTO categories
-      (guild_id, name, emoji, description, ping_type, ping_target_id, welcome_message, auto_message, auto_message_channel, auto_message_dm, sort_order)
+      (guild_id, name, emoji, description, ping_type, ping_target_id, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order)
     VALUES
-      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :sort_order)
-  `, data);
+      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order)
+  `, payload);
 }
 
+// Clearing welcome_message/auto_message back to empty regenerates the
+// category's default text instead of leaving it blank — every category is
+// meant to always have both.
 async function updateCategory(guildId, name, data) {
-  const fields = Object.keys(data).map(k => `${k} = :${k}`).join(', ');
-  await query(`UPDATE categories SET ${fields} WHERE guild_id = :guild_id AND name = :name`, { ...data, guild_id: guildId, name });
+  const updates = { ...data };
+  if (Object.prototype.hasOwnProperty.call(updates, 'welcome_message')) {
+    updates.welcome_message = ensureWelcomeMessage(name, updates.welcome_message);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'auto_message')) {
+    updates.auto_message = ensureAutoMessage(name, updates.auto_message);
+  }
+  const fields = Object.keys(updates).map(k => `${k} = :${k}`).join(', ');
+  await query(`UPDATE categories SET ${fields} WHERE guild_id = :guild_id AND name = :name`, { ...updates, guild_id: guildId, name });
 }
 
 async function deleteCategory(guildId, name) {
@@ -167,11 +198,21 @@ async function seedDefaultCategories(guildId) {
   const { count } = await getCategoryCount(guildId);
   if (count > 0) return;
   for (const [i, c] of DEFAULT_CATEGORIES.entries()) {
-    await insertCategory({
-      guild_id: guildId, name: c.name, emoji: c.emoji, description: '',
-      ping_type: null, ping_target_id: null, welcome_message: null, auto_message: null,
-      auto_message_channel: 1, auto_message_dm: 0, sort_order: i,
-    });
+    await insertCategory({ guild_id: guildId, name: c.name, emoji: c.emoji, sort_order: i });
+  }
+}
+
+// Guilds created before welcome/auto messages became mandatory (or a
+// category that had its text explicitly cleared) can still have NULL
+// columns — top up any category still missing either one with a generated
+// default, same as insertCategory/updateCategory do for new writes.
+async function backfillCategoryMessages(guildId) {
+  const categories = await getCategories(guildId);
+  for (const c of categories) {
+    const updates = {};
+    if (!c.welcome_message) updates.welcome_message = null;
+    if (!c.auto_message)    updates.auto_message    = null;
+    if (Object.keys(updates).length) await updateCategory(guildId, c.name, updates);
   }
 }
 
@@ -181,6 +222,7 @@ async function seedDefaultCategories(guildId) {
 async function ensureGuildWithDefaults(guildId) {
   await ensureGuild(guildId);
   await seedDefaultCategories(guildId);
+  await backfillCategoryMessages(guildId);
 }
 
 // ── Ticket helpers ────────────────────────────────────────────────────────────
@@ -241,6 +283,17 @@ async function getStats(guildId) {
   return rows[0];
 }
 
+// Average time-to-close across every closed ticket — the headline number
+// on the admin dashboard's global "Auslastung" (workload) overview.
+async function getAvgResolutionMinutes(guildId) {
+  const rows = await query(`
+    SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, closed_at)) AS avg_minutes
+    FROM tickets WHERE guild_id = :guildId AND status = 'closed' AND closed_at IS NOT NULL
+  `, { guildId });
+  const avg = rows[0]?.avg_minutes;
+  return avg != null ? Math.round(avg) : null;
+}
+
 // ── Message helpers ───────────────────────────────────────────────────────────
 async function addMessage(data) {
   await query(`
@@ -289,6 +342,7 @@ module.exports = {
   updateTicketCategory,
   closeTicket,
   getStats,
+  getAvgResolutionMinutes,
   addMessage,
   getMessages,
   addNote,

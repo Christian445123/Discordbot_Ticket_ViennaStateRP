@@ -9,21 +9,28 @@ mehrere Discord-Server gleichzeitig bedienen.
 ## Features
 
 - **Tickets** (der einzige Zweck des Bots)
-  - Panel mit Kategorie-Auswahl per Dropdown, Modal für Betreff & Beschreibung
+  - Panel mit Kategorie-Auswahl per Dropdown; jede Kategorie kann ihr **eigenes Frage-Formular**
+    haben (bis zu 5 Fragen), das statt des Standard-Betreff/Beschreibung-Modals abgefragt wird
   - Automatische Kanal-Erstellung, Staff-Rolle erhält automatisch Zugriff
-  - Kategorien pro Server konfigurierbar: Emoji, Panel-Beschreibung, Ping-Ziel,
-    Willkommensnachricht und eine **automatische Nachricht**, die beim Erstellen eines Tickets
-    dieser Kategorie zusätzlich im Kanal und/oder per DM gesendet wird
+  - Kategorien pro Server konfigurierbar: Emoji, Panel-Beschreibung, Ping-Ziel, eigene Fragen —
+    **Willkommensnachricht und automatische Nachricht sind für jede Kategorie Pflicht**: wird
+    keine eigene angegeben, generiert der Bot automatisch einen passenden Standardtext
+  - Neu gestaltetes Ticket-Embed (Autor/Titel/Status-Felder, Server-Icon) und ein eigenes,
+    farblich abgesetztes Embed für die automatische Nachricht
   - Ticket schließen per Button oder `/close`, automatischer Transkript-Export, Log-Kanal
 
 - **Admin-Webinterface** (nur Server-Administratoren)
   - Login mit Discord OAuth2, aber nur wer auf dem Server echte "Administrator"-Berechtigung hat,
     kommt hinter die Login-Seite — alle anderen sehen nur einen "Kein Zugriff"-Hinweis
   - **Kategorien & automatische Nachrichten** verwalten (anlegen/bearbeiten/löschen, Ping-Rolle,
-    Willkommens- und Auto-Nachricht) — dieselbe Funktion wie `/kategorie-config`, nur im Browser
-  - **Ticket-Übersicht** (Nur-Lese): Liste aller Tickets mit Status/Kategorie/Suche, Detailansicht
-    mit dem echten Discord-Gesprächsverlauf und Transkript-Export. Kein Web-Chat, kein Erstellen/
+    Willkommens- und Auto-Nachricht, eigene Fragen) — dieselbe Funktion wie `/kategorie-config`,
+    nur im Browser
+  - **Tickets**: Nur-Lese-Übersicht mit Status/Kategorie/Suche, Detailansicht mit dem echten
+    Discord-Gesprächsverlauf, Transkript-Export und einer globalen **Auslastungs**-Übersicht
+    (Ø Bearbeitungsdauer, Anteil offener Tickets je Kategorie). Kein Web-Chat, kein Erstellen/
     Schließen/Kategorie-Ändern über das Web — das bleibt bewusst ein Discord-seitiger Vorgang
+  - **Panel-Kanal wählen**: Ticket-Panel per Dropdown einem Kanal zuweisen und direkt senden bzw.
+    ein bereits gesendetes Panel aktualisieren — ohne Slash-Command
   - Interne Notizen pro Ticket (nur im Webinterface sichtbar, werden nie in den Ticket-Kanal
     gepostet) lassen sich ebenfalls im Webinterface anlegen
 
@@ -151,10 +158,15 @@ neue_kategorie:<Kategorie>` ändern.
 ## Ticket-Kategorien & automatische Nachrichten
 
 Kategorien sind **pro Server konfigurierbar** – jede hat einen Namen, ein Emoji, eine im Panel
-angezeigte Beschreibung, optional ein Ping-Ziel, eine Willkommensnachricht und optional eine
-**automatische Nachricht**, die zusätzlich beim Erstellen eines Tickets dieser Kategorie gesendet
-wird (im Ticket-Kanal und/oder per DM an den Ersteller). Beim ersten Kontakt mit einem Server
-werden fünf Standardkategorien angelegt (Support, Bug-Report, Bewerbung, Beschwerde, Allgemein).
+angezeigte Beschreibung, optional ein Ping-Ziel, eigene Fragen fürs Ticket-Formular sowie eine
+Willkommensnachricht und eine **automatische Nachricht**, die zusätzlich beim Erstellen eines
+Tickets dieser Kategorie gesendet wird (im Ticket-Kanal und/oder per DM an den Ersteller). Beim
+ersten Kontakt mit einem Server werden fünf Standardkategorien angelegt (Support, Bug-Report,
+Bewerbung, Beschwerde, Allgemein).
+
+**Willkommens- und automatische Nachricht sind für jede Kategorie Pflicht.** Wird beim Anlegen
+oder Bearbeiten kein eigener Text angegeben (oder ein vorhandener geleert), generiert der Bot
+automatisch einen passenden Standardtext mit dem Kategorienamen — leere Nachrichten gibt es nicht.
 
 Kategorien lassen sich auf zwei gleichwertigen Wegen pflegen:
 
@@ -165,7 +177,7 @@ Kategorien lassen sich auf zwei gleichwertigen Wegen pflegen:
 ### `/kategorie-config` (nur Admins)
 
 ```
-/kategorie-config hinzufuegen name:Bug-Report emoji:🐛 beschreibung:"Fehler im Spiel melden" ping_rolle:@QA-Team auto_nachricht:"Bitte Screenshots & Reproduktionsschritte angeben." auto_im_kanal:true auto_als_dm:false
+/kategorie-config hinzufuegen name:Bug-Report emoji:🐛 beschreibung:"Fehler im Spiel melden" ping_rolle:@QA-Team auto_nachricht:"Bitte Screenshots & Reproduktionsschritte angeben." auto_im_kanal:true auto_als_dm:false fragen:"Was ist passiert?;Wann trat der Fehler auf?;Reproduzierbar?"
 /kategorie-config bearbeiten name:Bug-Report ping_user:@Max
 /kategorie-config entfernen name:Beschwerde
 /kategorie-config liste
@@ -177,12 +189,24 @@ Kategorien lassen sich auf zwei gleichwertigen Wegen pflegen:
 | `emoji`           | Icon im Dropdown & Panel                                                     |
 | `beschreibung`    | Kurztext, der im Panel-Embed unter dem Kategorienamen steht                  |
 | `ping_rolle` / `ping_user` | Wer beim Erstellen eines Tickets dieser Kategorie gepingt wird (nur eines von beiden) – bekommt automatisch Zugriff auf den Ticket-Kanal |
-| `auto_nachricht`  | Zusätzlicher Text, der beim Erstellen automatisch gesendet wird              |
+| `willkommensnachricht` | Text im Ticket-Embed beim Öffnen (leer = automatisch generiert)         |
+| `auto_nachricht`  | Zusätzlicher Text, der beim Erstellen automatisch gesendet wird (leer = automatisch generiert) |
 | `auto_im_kanal`   | Automatische Nachricht im neuen Ticket-Kanal posten (Standard: ja)           |
 | `auto_als_dm`     | Automatische Nachricht zusätzlich per Direktnachricht an den Ersteller senden (Standard: nein) |
+| `fragen`          | Eigene Fragen fürs Ticket-Formular, getrennt mit `;` (max. 5) — ersetzt das Standard-Betreff/Beschreibung-Modal. Bei `bearbeiten` setzt `-` auf das Standard-Formular zurück |
 
 Name-Felder bei `bearbeiten`/`entfernen` bieten Autovervollständigung – die letzte verbleibende
 Kategorie eines Servers kann nicht gelöscht werden (weder per Command noch im Web).
+
+### Eigene Fragen pro Kategorie
+
+Ohne eigene Fragen zeigt das Ticket-Erstellungs-Modal wie bisher "Betreff" (kurz, Pflicht) und
+"Beschreibung" (Absatz, optional). Ist für eine Kategorie mindestens eine eigene Frage konfiguriert
+(per `fragen`-Option oder im Web über den Fragen-Editor der Kategorie-Karte), ersetzen diese
+Fragen das Standard-Formular komplett — Discord erlaubt maximal 5 Felder pro Modal. Die Antworten
+landen als Frage/Antwort-Block im Ticket-Embed und in der Ticket-Übersicht statt des einfachen
+Betreffs. Im Web lässt sich pro Frage zusätzlich Kurztext/Absatz und Pflicht/Optional einstellen;
+über den Slash-Command werden alle per `fragen` angelegten Fragen als Pflicht-Kurztext erstellt.
 
 ### Panel senden/aktualisieren – `/panel`
 
@@ -202,13 +226,18 @@ hat (oder in `SUPER_ADMIN_IDS` steht) — alle anderen sehen nach dem Login nur 
 "Kein Zugriff"-Hinweis, alle `/api`-Routen antworten mit `403`.
 
 - **Kategorien & Nachrichten**: Kategorien anlegen/bearbeiten/löschen, inkl. Ping-Rolle,
-  Willkommensnachricht und automatischer Nachricht (Kanal/DM) — identische Daten wie
-  `/kategorie-config`, sofort auf beiden Wegen sichtbar.
-- **Tickets**: Nur-Lese-Übersicht mit Suche/Status-/Kategorie-Filter. Ein Klick auf ein Ticket
-  öffnet eine Detailansicht mit dem echten (aus Discord aufgezeichneten) Gesprächsverlauf,
-  Transkript-Download und internen Notizen. Ticket erstellen, Nachrichten schreiben, schließen
-  oder die Kategorie ändern geht **nicht** über das Web — das bleibt bewusst Discord-seitig
-  (Panel-Button/Slash-Commands), damit der Bot ausschließlich über Discord bedient wird.
+  Willkommensnachricht, automatischer Nachricht (Kanal/DM) und eigenen Fragen fürs
+  Ticket-Formular — identische Daten wie `/kategorie-config`, sofort auf beiden Wegen sichtbar.
+- **Tickets**: Nur-Lese-Übersicht mit Suche/Status-/Kategorie-Filter, dazu eine globale
+  **Auslastungs**-Anzeige (Ø Bearbeitungsdauer über alle geschlossenen Tickets, Anteil offener
+  Tickets je Kategorie als Balken). Ein Klick auf ein Ticket öffnet eine Detailansicht mit dem
+  echten (aus Discord aufgezeichneten) Gesprächsverlauf, Transkript-Download und internen Notizen.
+  Ticket erstellen, Nachrichten schreiben, schließen oder die Kategorie ändern geht **nicht** über
+  das Web — das bleibt bewusst Discord-seitig (Panel-Button/Slash-Commands), damit der Bot
+  ausschließlich über Discord bedient wird.
+- **Panel**: den Kanal für das Ticket-Erstellungs-Panel per Dropdown wählen und direkt senden,
+  oder ein bereits gesendetes Panel (z. B. nach Kategorie-Änderungen) neu rendern — Pendant zu
+  `/panel senden`/`/panel aktualisieren`, ohne Discord-Befehl.
 - **Guild-Switcher**: Nutzer mit Administrator-Rechten auf mehreren Servern, auf denen der Bot
   läuft, können oben rechts zwischen ihnen wechseln.
 
