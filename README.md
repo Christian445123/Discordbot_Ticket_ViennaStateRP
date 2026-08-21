@@ -28,9 +28,8 @@ mehrere Discord-Server gleichzeitig bedienen.
   - **Tickets**: Nur-Lese-Übersicht mit Status/Kategorie/Suche, Detailansicht mit dem echten
     Discord-Gesprächsverlauf, Transkript-Export und einer globalen **Auslastungs**-Übersicht
     (Ø Bearbeitungsdauer, Anteil offener Tickets je Kategorie). Kein Web-Chat, kein Erstellen/
-    Schließen/Kategorie-Ändern über das Web — das bleibt bewusst ein Discord-seitiger Vorgang
-  - **Panel-Kanal wählen**: Ticket-Panel per Dropdown einem Kanal zuweisen und direkt senden bzw.
-    ein bereits gesendetes Panel aktualisieren — ohne Slash-Command
+    Schließen/Kategorie-Ändern über das Web — das bleibt bewusst ein Discord-seitiger Vorgang.
+    Auch der Panel-Kanal wird ausschließlich über `/setup`/`/panel` in Discord verwaltet
   - Interne Notizen pro Ticket (nur im Webinterface sichtbar, werden nie in den Ticket-Kanal
     gepostet) lassen sich ebenfalls im Webinterface anlegen
 
@@ -234,10 +233,8 @@ hat (oder in `SUPER_ADMIN_IDS` steht) — alle anderen sehen nach dem Login nur 
   echten (aus Discord aufgezeichneten) Gesprächsverlauf, Transkript-Download und internen Notizen.
   Ticket erstellen, Nachrichten schreiben, schließen oder die Kategorie ändern geht **nicht** über
   das Web — das bleibt bewusst Discord-seitig (Panel-Button/Slash-Commands), damit der Bot
-  ausschließlich über Discord bedient wird.
-- **Panel**: den Kanal für das Ticket-Erstellungs-Panel per Dropdown wählen und direkt senden,
-  oder ein bereits gesendetes Panel (z. B. nach Kategorie-Änderungen) neu rendern — Pendant zu
-  `/panel senden`/`/panel aktualisieren`, ohne Discord-Befehl.
+  ausschließlich über Discord bedient wird. Auch der Panel-Kanal (`/setup panel_kanal:`,
+  `/panel senden`/`/panel aktualisieren`) bleibt bewusst ein reiner Discord-Befehl.
 - **Guild-Switcher**: Nutzer mit Administrator-Rechten auf mehreren Servern, auf denen der Bot
   läuft, können oben rechts zwischen ihnen wechseln.
 

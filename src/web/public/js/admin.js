@@ -1,7 +1,7 @@
 'use strict';
 
 let currentUser  = null;
-let activeTab    = 'categories'; // 'categories' | 'tickets' | 'panel'
+let activeTab    = 'categories'; // 'categories' | 'tickets'
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -35,13 +35,12 @@ async function loadUser() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  ['categories', 'tickets', 'panel'].forEach(t => {
+  ['categories', 'tickets'].forEach(t => {
     document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
   });
   if (tab === 'categories') loadCategorySettings();
-  if (tab === 'tickets')    { loadStats(); loadWorkload(); loadTickets(); }
-  if (tab === 'panel')      loadPanelSettings();
+  if (tab === 'tickets')    { loadStats(); loadTickets(); }
 }
 
 // ── Categories & automatic messages ─────────────────────────────────────────
@@ -293,16 +292,7 @@ function catBadge(cat) {
   return `<span class="ticket-badge ${categoryClass(cat)}">${escapeHtml(cat)}</span>`;
 }
 
-async function loadStats() {
-  try {
-    const stats = await apiFetch('/api/stats').then(r => r.json());
-    document.getElementById('statTotal').textContent  = stats.total  ?? 0;
-    document.getElementById('statOpen').textContent   = stats.open   ?? 0;
-    document.getElementById('statClosed').textContent = stats.closed ?? 0;
-  } catch { /* ignore */ }
-}
-
-// ── Global workload overview ("Auslastung") ─────────────────────────────────
+// ── Stats & global workload overview ("Auslastung") ─────────────────────────
 function formatMinutes(minutes) {
   if (minutes == null) return 'noch keine geschlossenen Tickets';
   if (minutes < 60) return `${minutes} Min.`;
@@ -321,44 +311,56 @@ function workloadBarColor(percent) {
   return 'badge-load-green';
 }
 
-async function loadWorkload() {
+function renderWorkload(data) {
   const container = document.getElementById('workloadBars');
   const avgEl      = document.getElementById('workloadAvgResolution');
+  avgEl.textContent = `Ø Bearbeitungsdauer: ${formatMinutes(data.avgResolutionMinutes)}`;
+
+  const byCategory = data.byCategory || [];
+  const totalOpen  = byCategory.reduce((sum, c) => sum + (c.open_count || 0), 0);
+  if (!byCategory.length) {
+    container.innerHTML = '<p class="text-muted small mb-0">Keine Kategorien konfiguriert.</p>';
+    return;
+  }
+  if (!totalOpen) {
+    container.innerHTML = '<p class="text-muted small mb-0">Aktuell keine offenen Tickets.</p>';
+    return;
+  }
+
+  container.innerHTML = byCategory
+    .filter(c => c.open_count > 0)
+    .sort((a, b) => b.open_count - a.open_count)
+    .map(c => {
+      const percent = Math.round((c.open_count / totalOpen) * 100);
+      return `
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small mb-1">
+            <span>${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</span>
+            <span class="text-muted">${c.open_count} offen · ${percent}%</span>
+          </div>
+          <div class="progress" style="height:6px;background-color:var(--bg-dark)">
+            <div class="progress-bar ${workloadBarColor(percent)}" style="width:${percent}%;background-color:currentColor"></div>
+          </div>
+        </div>`;
+    }).join('');
+}
+
+async function loadStats() {
+  const workloadContainer = document.getElementById('workloadBars');
+  workloadContainer.innerHTML = '<p class="text-muted small mb-0">Lade…</p>';
   try {
-    const res  = await apiFetch('/api/workload');
-    if (!res.ok) { container.innerHTML = '<p class="text-danger small mb-0">Fehler beim Laden.</p>'; return; }
-    const data = await res.json();
-
-    avgEl.textContent = `Ø Bearbeitungsdauer: ${formatMinutes(data.avgResolutionMinutes)}`;
-
-    const totalOpen = data.byCategory.reduce((sum, c) => sum + (c.open_count || 0), 0);
-    if (!data.byCategory.length) {
-      container.innerHTML = '<p class="text-muted small mb-0">Keine Kategorien konfiguriert.</p>';
+    const res = await apiFetch('/api/stats');
+    if (!res.ok) {
+      workloadContainer.innerHTML = '<p class="text-danger small mb-0">Fehler beim Laden.</p>';
       return;
     }
-    if (!totalOpen) {
-      container.innerHTML = '<p class="text-muted small mb-0">Aktuell keine offenen Tickets.</p>';
-      return;
-    }
-
-    container.innerHTML = data.byCategory
-      .filter(c => c.open_count > 0)
-      .sort((a, b) => b.open_count - a.open_count)
-      .map(c => {
-        const percent = Math.round((c.open_count / totalOpen) * 100);
-        return `
-          <div class="mb-2">
-            <div class="d-flex justify-content-between small mb-1">
-              <span>${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</span>
-              <span class="text-muted">${c.open_count} offen · ${percent}%</span>
-            </div>
-            <div class="progress" style="height:6px;background-color:var(--bg-dark)">
-              <div class="progress-bar ${workloadBarColor(percent)}" style="width:${percent}%;background-color:currentColor"></div>
-            </div>
-          </div>`;
-      }).join('');
+    const stats = await res.json();
+    document.getElementById('statTotal').textContent  = stats.total  ?? 0;
+    document.getElementById('statOpen').textContent   = stats.open   ?? 0;
+    document.getElementById('statClosed').textContent = stats.closed ?? 0;
+    renderWorkload(stats);
   } catch {
-    container.innerHTML = '<p class="text-danger small mb-0">Netzwerkfehler.</p>';
+    workloadContainer.innerHTML = '<p class="text-danger small mb-0">Netzwerkfehler.</p>';
   }
 }
 
@@ -424,94 +426,6 @@ function renderTicketTable() {
 document.getElementById('searchInput').addEventListener('input', renderTicketTable);
 document.getElementById('statusFilter').addEventListener('change', renderTicketTable);
 document.getElementById('categoryFilter').addEventListener('change', renderTicketTable);
-
-// ── Panel: choose & send/refresh the ticket-creation panel ─────────────────────
-async function loadPanelSettings() {
-  const statusCard = document.getElementById('panelStatusCard');
-  const select      = document.getElementById('panelChannelSelect');
-  const refreshBtn  = document.getElementById('panelRefreshBtn');
-
-  try {
-    const [channelsRes, panelRes] = await Promise.all([
-      apiFetch('/api/admin/guild-channels'),
-      apiFetch('/api/admin/panel'),
-    ]);
-    const channels = channelsRes.ok ? await channelsRes.json() : [];
-    const panel     = panelRes.ok ? await panelRes.json() : { channelId: null };
-
-    select.innerHTML = `<option value="">Kanal wählen…</option>` +
-      channels.map(c => `<option value="${c.id}" ${c.id === panel.channelId ? 'selected' : ''}>#${escapeHtml(c.name)}</option>`).join('');
-
-    if (panel.channelId) {
-      const channel = channels.find(c => c.id === panel.channelId);
-      statusCard.innerHTML = `
-        <div class="text-muted">
-          <i class="bi bi-check-circle-fill text-success me-2"></i>
-          Panel ist aktuell in ${channel ? `#${escapeHtml(channel.name)}` : 'einem Kanal (nicht mehr gefunden)'} gepostet.
-        </div>`;
-      refreshBtn.disabled = false;
-    } else {
-      statusCard.innerHTML = `
-        <div class="text-muted">
-          <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
-          Es wurde noch kein Panel gesendet.
-        </div>`;
-      refreshBtn.disabled = true;
-    }
-  } catch {
-    statusCard.innerHTML = '<div class="text-danger small">Netzwerkfehler.</div>';
-  }
-}
-
-async function sendPanel() {
-  const channelId = document.getElementById('panelChannelSelect').value;
-  const alertEl    = document.getElementById('panelAlert');
-  if (!channelId) { alertEl.className = 'alert alert-danger'; alertEl.textContent = 'Bitte einen Kanal wählen.'; return; }
-
-  const btn = document.getElementById('panelSendBtn');
-  btn.disabled = true;
-  try {
-    const res  = await apiFetch('/api/admin/panel/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      alertEl.className = 'alert alert-success';
-      alertEl.textContent = '✓ Panel gesendet.';
-      await loadPanelSettings();
-    } else {
-      alertEl.className = 'alert alert-danger';
-      alertEl.textContent = data.error || 'Fehler beim Senden.';
-    }
-  } catch {
-    alertEl.className = 'alert alert-danger';
-    alertEl.textContent = 'Netzwerkfehler.';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function refreshPanel() {
-  const alertEl = document.getElementById('panelAlert');
-  const btn     = document.getElementById('panelRefreshBtn');
-  btn.disabled = true;
-  try {
-    const res  = await apiFetch('/api/admin/panel/refresh', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      alertEl.className = 'alert alert-success';
-      alertEl.textContent = '✓ Panel aktualisiert.';
-    } else {
-      alertEl.className = 'alert alert-danger';
-      alertEl.textContent = data.error || 'Fehler beim Aktualisieren.';
-    }
-  } catch {
-    alertEl.className = 'alert alert-danger';
-    alertEl.textContent = 'Netzwerkfehler.';
-  } finally {
-    btn.disabled = false;
-  }
-}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {

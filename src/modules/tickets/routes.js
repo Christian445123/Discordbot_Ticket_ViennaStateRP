@@ -6,14 +6,18 @@
 // Discord Administrator on this guild" without re-checking it itself. Covers
 // two things: category + automatic-message management, and a read-only
 // ticket overview (no chat, no create/close/category-change from the web —
-// that stays a Discord-side ticket flow, see component.js).
+// that stays a Discord-side ticket flow, see component.js). The ticket
+// panel (where it's posted) stays Discord-only too — see /setup and /panel.
+//
+// Every handler is wrapped in try/catch and always sends a response: Express
+// does not catch rejected promises in async route handlers itself, so an
+// uncaught error here would otherwise leave the browser's fetch() hanging
+// forever instead of failing visibly.
 
 const express      = require('express');
-const { ChannelType } = require('discord.js');
 const db           = require('./db');
 const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
-const panelBuilder = require('./panelBuilder');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
@@ -88,105 +92,136 @@ module.exports = function apiRoutes(discordClient) {
 
   // ── Current user ─────────────────────────────────────────────────────────
   router.get('/me', async (req, res) => {
-    const { id, username, discriminator } = req.user;
-    const guildId = req.guildId;
-    const isAdmin = guildId ? await guards.isGuildAdmin(discordClient, guildId, id) : false;
-    res.json({
-      id, username, discriminator,
-      isAdmin,
-      isSuperAdmin: guards.isSuperAdmin(id),
-      avatar: buildAvatarUrl(req.user),
-    });
+    try {
+      const { id, username, discriminator } = req.user;
+      const guildId = req.guildId;
+      const isAdmin = guildId ? await guards.isGuildAdmin(discordClient, guildId, id) : false;
+      res.json({
+        id, username, discriminator,
+        isAdmin,
+        isSuperAdmin: guards.isSuperAdmin(id),
+        avatar: buildAvatarUrl(req.user),
+      });
+    } catch (err) {
+      logger.error('/me fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Fehler beim Laden des Nutzers' });
+    }
   });
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Stats & workload ("Auslastung") ─────────────────────────────────────────
+  // A single endpoint for both: the stat cards and the per-category workload
+  // breakdown are always shown together on the Tickets tab, so one request
+  // beats two round trips (and two places that could fail independently).
   router.get('/stats', async (req, res) => {
-    const guildId = req.guildId;
-    await db.ensureGuildWithDefaults(guildId);
-    res.json(await db.getStats(guildId));
-  });
+    try {
+      const guildId = req.guildId;
+      await db.ensureGuildWithDefaults(guildId);
 
-  // ── Global workload overview ("Auslastung") ─────────────────────────────────
-  router.get('/workload', async (req, res) => {
-    const guildId = req.guildId;
-    await db.ensureGuildWithDefaults(guildId);
+      const [stats, categories, openCounts, avgResolutionMinutes] = await Promise.all([
+        db.getStats(guildId),
+        db.getCategories(guildId),
+        db.getOpenCountsByCategory(guildId),
+        db.getAvgResolutionMinutes(guildId),
+      ]);
+      const openByName = Object.fromEntries(openCounts.map(c => [c.category, c.open_count]));
+      const byCategory = categories.map(c => ({
+        name: c.name, emoji: c.emoji, open_count: openByName[c.name] ?? 0,
+      }));
 
-    const [stats, categories, openCounts, avgResolutionMinutes] = await Promise.all([
-      db.getStats(guildId),
-      db.getCategories(guildId),
-      db.getOpenCountsByCategory(guildId),
-      db.getAvgResolutionMinutes(guildId),
-    ]);
-    const openByName = Object.fromEntries(openCounts.map(c => [c.category, c.open_count]));
-    const byCategory = categories.map(c => ({
-      name: c.name, emoji: c.emoji, open_count: openByName[c.name] ?? 0,
-    }));
-
-    res.json({ ...stats, avgResolutionMinutes, byCategory });
+      res.json({ ...stats, avgResolutionMinutes, byCategory });
+    } catch (err) {
+      logger.error('Stats/Auslastung laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Statistiken konnten nicht geladen werden' });
+    }
   });
 
   // ── Tickets: read-only overview ─────────────────────────────────────────────
   router.get('/tickets', async (req, res) => {
-    const guildId = req.guildId;
-    await db.ensureGuildWithDefaults(guildId);
-    const tickets = await db.getTicketsByGuild(guildId);
-    res.json({ tickets });
+    try {
+      const guildId = req.guildId;
+      await db.ensureGuildWithDefaults(guildId);
+      const tickets = await db.getTicketsByGuild(guildId);
+      res.json({ tickets });
+    } catch (err) {
+      logger.error('Tickets laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Tickets konnten nicht geladen werden' });
+    }
   });
 
   router.get('/tickets/:id', async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    const rawMessages = await db.getMessages(ticketId);
-    const messages = rawMessages.map(m => ({
-      ...m, attachments: JSON.parse(m.attachments || '[]'),
-    }));
-    res.json({ ticket, messages });
+      const rawMessages = await db.getMessages(ticketId);
+      const messages = rawMessages.map(m => ({
+        ...m, attachments: JSON.parse(m.attachments || '[]'),
+      }));
+      res.json({ ticket, messages });
+    } catch (err) {
+      logger.error('Ticket laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Ticket konnte nicht geladen werden' });
+    }
   });
 
   // ── Transcript (HTML) ─────────────────────────────────────────────────────
   router.get('/tickets/:id/transcript', async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    const rawMessages = await db.getMessages(ticketId);
-    const messages = rawMessages.map(m => ({
-      ...m, attachments: JSON.parse(m.attachments || '[]'),
-    }));
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(generateTranscript(ticket, messages));
+      const rawMessages = await db.getMessages(ticketId);
+      const messages = rawMessages.map(m => ({
+        ...m, attachments: JSON.parse(m.attachments || '[]'),
+      }));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(generateTranscript(ticket, messages));
+    } catch (err) {
+      logger.error('Transkript laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Transkript konnte nicht geladen werden' });
+    }
   });
 
   // ── Notes (internal admin annotations, never posted into the Discord channel) ──
   router.get('/tickets/:id/notes', async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
 
-    res.json(await db.getNotes(ticketId));
+      res.json(await db.getNotes(ticketId));
+    } catch (err) {
+      logger.error('Notizen laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Notizen konnten nicht geladen werden' });
+    }
   });
 
   router.post('/tickets/:id/notes', async (req, res) => {
-    const ticketId = parseInt(req.params.id, 10);
-    if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
-    const { content } = req.body;
-    if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ error: 'Inhalt fehlt' });
 
-    const noteContent = content.trim();
-    await db.addNote(ticketId, req.user.id, req.user.username, noteContent);
+      const noteContent = content.trim();
+      await db.addNote(ticketId, req.user.id, req.user.username, noteContent);
 
-    await ticketLog.logNoteAdded(discordClient, req.guildId, {
-      ticket, authorTag: `${req.user.username} (Web)`, content: noteContent,
-    });
+      await ticketLog.logNoteAdded(discordClient, req.guildId, {
+        ticket, authorTag: `${req.user.username} (Web)`, content: noteContent,
+      });
 
-    res.json({ success: true });
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Notiz speichern fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Notiz konnte nicht gespeichert werden' });
+    }
   });
 
   // ── Categories & automatic messages ─────────────────────────────────────────
@@ -310,75 +345,18 @@ module.exports = function apiRoutes(discordClient) {
 
   // ── Guild roles (for the ping-role picker) ──────────────────────────────────
   router.get('/admin/guild-roles', async (req, res) => {
-    const guild = discordClient.guilds.cache.get(req.guildId);
-    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
-
-    const roles = guild.roles.cache
-      .filter(r => r.id !== guild.id) // exclude @everyone
-      .sort((a, b) => b.position - a.position)
-      .map(r => ({ id: r.id, name: r.name }));
-    res.json(roles);
-  });
-
-  // ── Ticket panel: where it's posted, and posting/refreshing it ─────────────
-  router.get('/admin/guild-channels', async (req, res) => {
-    const guild = discordClient.guilds.cache.get(req.guildId);
-    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
-
-    const channels = guild.channels.cache
-      .filter(c => c.type === ChannelType.GuildText)
-      .sort((a, b) => a.position - b.position)
-      .map(c => ({ id: c.id, name: c.name }));
-    res.json(channels);
-  });
-
-  router.get('/admin/panel', async (req, res) => {
-    const guildCfg = await db.getGuild(req.guildId);
-    res.json({
-      channelId: guildCfg?.panel_channel_id ?? null,
-      messageId: guildCfg?.panel_message_id ?? null,
-    });
-  });
-
-  router.post('/admin/panel/send', async (req, res) => {
-    const guild = discordClient.guilds.cache.get(req.guildId);
-    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
-
-    const channelId = req.body.channelId;
-    const channel    = channelId && guild.channels.cache.get(channelId);
-    if (!channel || channel.type !== ChannelType.GuildText) {
-      return res.status(400).json({ error: 'Ungültiger Kanal' });
-    }
-
     try {
-      await db.ensureGuildWithDefaults(req.guildId);
-      const payload = await panelBuilder.buildPanelPayload(guild);
-      const message = await channel.send(payload);
-      await db.updateGuild(req.guildId, { panel_channel_id: channel.id, panel_message_id: message.id });
-      res.json({ success: true, channelId: channel.id });
+      const guild = discordClient.guilds.cache.get(req.guildId);
+      if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+      const roles = guild.roles.cache
+        .filter(r => r.id !== guild.id) // exclude @everyone
+        .sort((a, b) => b.position - a.position)
+        .map(r => ({ id: r.id, name: r.name }));
+      res.json(roles);
     } catch (err) {
-      logger.error('Panel senden (Web) fehlgeschlagen:', err.message);
-      res.status(500).json({ error: 'Panel konnte nicht gesendet werden' });
-    }
-  });
-
-  router.post('/admin/panel/refresh', async (req, res) => {
-    const guild = discordClient.guilds.cache.get(req.guildId);
-    if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
-
-    const guildCfg = await db.getGuild(req.guildId);
-    if (!guildCfg?.panel_channel_id || !guildCfg?.panel_message_id) {
-      return res.status(400).json({ error: 'Es wurde noch kein Panel gesendet' });
-    }
-
-    try {
-      const channel = await guild.channels.fetch(guildCfg.panel_channel_id);
-      const message = await channel.messages.fetch(guildCfg.panel_message_id);
-      await message.edit(await panelBuilder.buildPanelPayload(guild));
-      res.json({ success: true });
-    } catch (err) {
-      logger.error('Panel aktualisieren (Web) fehlgeschlagen:', err.message);
-      res.status(404).json({ error: `Panel konnte nicht aktualisiert werden (wurde es gelöscht?): ${err.message}` });
+      logger.error('Guild-Rollen laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Rollen konnten nicht geladen werden' });
     }
   });
 
