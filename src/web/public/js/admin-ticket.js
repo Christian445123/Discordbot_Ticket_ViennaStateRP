@@ -39,20 +39,32 @@ async function loadUser() {
   `;
 }
 
+// "In Bearbeitung" isn't a stored status — it's status='open' with
+// claimed_by_id set (see db.js/routes.js's POST /tickets/:id/claim).
+function ticketDisplayStatus(ticket) {
+  if (ticket.status === 'closed') return 'closed';
+  return ticket.claimed_by_id ? 'in_progress' : 'open';
+}
+
+const STATUS_META = {
+  open:        { cls: 'badge-open',     label: 'Offen',          icon: 'bi-circle-fill' },
+  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung', icon: 'bi-person-fill-gear' },
+  closed:      { cls: 'badge-closed',   label: 'Geschlossen',    icon: 'bi-lock-fill' },
+};
+
 function renderHeader(ticket) {
   document.title = `Ticket #${String(ticket.ticket_number).padStart(3,'0')} – Admin`;
   document.getElementById('ticketTitle').textContent =
     `Ticket #${String(ticket.ticket_number).padStart(3,'0')} – ${ticket.subject || '(kein Betreff)'}`;
 
-  const sCls   = ticket.status === 'open' ? 'badge-open'    : 'badge-closed';
-  const sLabel = ticket.status === 'open' ? 'Offen'         : 'Geschlossen';
-  const sIcon  = ticket.status === 'open' ? 'bi-circle-fill': 'bi-lock-fill';
+  const { cls: sCls, label: sLabel, icon: sIcon } = STATUS_META[ticketDisplayStatus(ticket)];
 
   document.getElementById('ticketMeta').innerHTML = `
     <span class="meta-pill"><i class="bi bi-person-fill"></i>${escapeHtml(ticket.username)}</span>
     <span class="meta-pill"><i class="bi bi-tag-fill"></i>${escapeHtml(ticket.category)}</span>
     <span class="meta-pill"><i class="bi bi-clock-fill"></i>${formatDate(ticket.created_at)}</span>
     ${ticket.closed_at ? `<span class="meta-pill"><i class="bi bi-lock-fill"></i>Geschlossen: ${formatDate(ticket.closed_at)}</span>` : ''}
+    ${ticket.claimed_by_name ? `<span class="meta-pill"><i class="bi bi-hand-index-thumb-fill"></i>Übernommen von ${escapeHtml(ticket.claimed_by_name)}</span>` : ''}
     <span class="ticket-badge ${sCls} ms-1">
       <i class="bi ${sIcon} me-1" style="font-size:.6rem"></i>${sLabel}
     </span>
@@ -61,6 +73,34 @@ function renderHeader(ticket) {
   const tBtn = document.getElementById('transcriptBtn');
   tBtn.href = `/api/tickets/${ticketId}/transcript`;
   tBtn.classList.remove('d-none');
+
+  const claimBtn = document.getElementById('claimBtn');
+  if (ticket.status === 'closed') {
+    claimBtn.classList.add('d-none');
+  } else {
+    claimBtn.classList.remove('d-none');
+    claimBtn.innerHTML = ticket.claimed_by_name
+      ? `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen (aktuell: ${escapeHtml(ticket.claimed_by_name)})`
+      : `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen`;
+  }
+}
+
+async function claimTicket() {
+  const claimBtn = document.getElementById('claimBtn');
+  claimBtn.disabled = true;
+  try {
+    const res = await apiFetch(`/api/tickets/${ticketId}/claim`, { method: 'POST' });
+    if (res.ok) {
+      const refreshed = await apiFetch(`/api/tickets/${ticketId}`).then(r => r.json());
+      renderHeader(refreshed.ticket);
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Fehler beim Übernehmen');
+    }
+  } catch {
+    alert('Netzwerkfehler');
+  }
+  claimBtn.disabled = false;
 }
 
 function renderMessages(messages) {

@@ -4,10 +4,12 @@
 // behind requireAuth + requireGuildAdmin (see src/web/guildContext.js and
 // src/web/server.js), so every handler below can assume "logged in, real
 // Discord Administrator on this guild" without re-checking it itself. Covers
-// two things: category + automatic-message management, and a read-only
-// ticket overview (no chat, no create/close/category-change from the web —
-// that stays a Discord-side ticket flow, see component.js). The ticket
-// panel (where it's posted) stays Discord-only too — see /setup and /panel.
+// two things: category + automatic-message management, and a mostly
+// read-only ticket overview (no chat, no close, no category change from the
+// web — that stays a Discord-side ticket flow, see component.js; the one
+// exception is claiming a ticket — POST /tickets/:id/claim — since every
+// caller here is already a guild admin). The ticket panel (where it's
+// posted) stays Discord-only too — see /setup and /panel.
 //
 // Every handler is wrapped in try/catch and always sends a response: Express
 // does not catch rejected promises in async route handlers itself, so an
@@ -49,8 +51,18 @@ function buildAvatarUrl(user) {
     : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
 }
 
+// "In Bearbeitung" isn't a stored status — it's status='open' with
+// claimed_by_id set (see db.js/POST /tickets/:id/claim).
+function ticketDisplayStatus(ticket) {
+  if (ticket.status === 'closed') return 'closed';
+  return ticket.claimed_by_id ? 'in_progress' : 'open';
+}
+
+const TICKET_STATUS_LABELS = { open: 'Offen', in_progress: 'In Bearbeitung', closed: 'Geschlossen' };
+
 function generateTranscript(ticket, messages) {
   const ticketNum = String(ticket.ticket_number).padStart(3, '0');
+  const displayStatus = ticketDisplayStatus(ticket);
 
   const msgsHtml = messages.map(m => {
     const attachHtml = m.attachments
@@ -76,7 +88,7 @@ function generateTranscript(ticket, messages) {
 .wrap{max-width:860px;margin:0 auto}.header{background:#2b2d31;border-radius:12px;padding:20px 24px;margin-bottom:24px;border-left:4px solid #5865f2}
 h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;color:#96989d}
 .badge{display:inline-block;padding:.2em .6em;border-radius:4px;font-size:.75rem;font-weight:600}
-.open{background:rgba(87,242,135,.15);color:#57f287}.closed{background:rgba(150,152,157,.15);color:#96989d}
+.open{background:rgba(87,242,135,.15);color:#57f287}.in_progress{background:rgba(254,231,92,.15);color:#fee75c}.closed{background:rgba(150,152,157,.15);color:#96989d}
 .msgs{display:flex;flex-direction:column;gap:10px}.msg{background:#2b2d31;border-radius:10px;padding:12px 16px}
 .msg-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .av{width:32px;height:32px;border-radius:50%;flex-shrink:0;object-fit:cover}
@@ -95,7 +107,8 @@ h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex
     <span>📅 ${new Date(ticket.created_at).toLocaleString('de-AT')}</span>
     ${ticket.closed_at ? `<span>🔒 Geschlossen: ${new Date(ticket.closed_at).toLocaleString('de-AT')}</span>` : ''}
     ${ticket.closed_by_name ? `<span>von ${escHtml(ticket.closed_by_name)}</span>` : ''}
-    <span class="badge ${ticket.status}">${ticket.status === 'open' ? 'Offen' : 'Geschlossen'}</span>
+    ${ticket.claimed_by_name ? `<span>🖐️ Übernommen von ${escHtml(ticket.claimed_by_name)}</span>` : ''}
+    <span class="badge ${displayStatus}">${TICKET_STATUS_LABELS[displayStatus]}</span>
   </div>
 </div>
 <div class="msgs">${msgsHtml || '<div class="empty">Keine Nachrichten vorhanden.</div>'}</div>
@@ -229,6 +242,30 @@ module.exports = function apiRoutes(discordClient) {
     } catch (err) {
       logger.error('Ticket laden fehlgeschlagen:', err.message);
       res.status(500).json({ error: 'Ticket konnte nicht geladen werden' });
+    }
+  });
+
+  // "In Bearbeitung" from the web panel — see db.js: not a stored status,
+  // just status='open' with claimed_by_id set, same as the Discord-side
+  // Claim button/auto-claim-on-reply (component.js / events/messageCreate.js).
+  router.post('/tickets/:id/claim', async (req, res) => {
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+      if (ticket.status === 'closed') return res.status(400).json({ error: 'Ticket ist bereits geschlossen' });
+
+      await db.claimTicket(ticketId, { claimedById: req.user.id, claimedByName: req.user.username });
+
+      await ticketLog.logTicketClaimed(discordClient, req.guildId, {
+        ticket, claimedByTag: `${req.user.username} (Web)`, auto: false, source: '🖥️ Web',
+      });
+
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Ticket übernehmen fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Ticket konnte nicht übernommen werden' });
     }
   });
 

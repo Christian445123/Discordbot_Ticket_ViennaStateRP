@@ -16,6 +16,7 @@ const ticketLog      = require('./ticketLog');
 const categoryNotify = require('./categoryNotify');
 const questions      = require('./questions');
 const pingRoles      = require('./pingRoles');
+const { isTicketStaff } = require('./staffCheck');
 
 // Discord channel names only allow lowercase letters/digits/hyphens (it
 // silently strips/mangles anything else), so a category name like "Bewerbung"
@@ -178,7 +179,19 @@ async function createTicketChannel(interaction, category, subject) {
     .setStyle(ButtonStyle.Danger)
     .setEmoji('🔒');
 
-  const row = new ActionRowBuilder().addComponents(closeBtn);
+  const claimBtn = new ButtonBuilder()
+    .setCustomId('claim_ticket')
+    .setLabel('Übernehmen')
+    .setStyle(ButtonStyle.Success)
+    .setEmoji('🖐️');
+
+  const askCloseBtn = new ButtonBuilder()
+    .setCustomId('ask_close_ticket')
+    .setLabel('Nachfragen')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('❓');
+
+  const row = new ActionRowBuilder().addComponents(closeBtn, claimBtn, askCloseBtn);
 
   const pingMention = categoryNotify.buildPingMention(categoryCfg);
   await channel.send({
@@ -209,7 +222,7 @@ async function createTicketChannel(interaction, category, subject) {
 // Slash-command dispatch and autocomplete are handled centrally by
 // src/core/interactionRouter.js — this only ever sees buttons/selects/
 // modals, and only reacts to the "ticket_"/"close_"/"cancel_close"/
-// "confirm_close_" customIds it owns.
+// "confirm_close_"/"claim_ticket"/"ask_close_ticket" customIds it owns.
 async function component(interaction) {
 
     // ── Category select menu (from panel) ───────────────────────────────────
@@ -297,6 +310,73 @@ async function component(interaction) {
     // ── Button: cancel close ────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'cancel_close') {
       await interaction.reply({ content: 'Schließen abgebrochen.', ephemeral: true });
+      return;
+    }
+
+    // ── Button: claim ticket ─────────────────────────────────────────────────
+    // "In Bearbeitung" isn't a stored status — it's status='open' with
+    // claimed_by_id set (see db.js). Re-claiming (by someone else) is allowed
+    // and simply reassigns, since that's a normal "take over" use case.
+    if (interaction.isButton() && interaction.customId === 'claim_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.reply({ content: '❌ Nur Staff kann Tickets übernehmen.', ephemeral: true });
+      }
+
+      await db.claimTicket(ticket.id, { claimedById: interaction.user.id, claimedByName: interaction.user.tag });
+
+      await interaction.reply({
+        content: `🖐️ ${interaction.user} hat dieses Ticket übernommen. Status: **In Bearbeitung**`,
+      });
+
+      await ticketLog.logTicketClaimed(interaction.client, interaction.guild.id, {
+        ticket, claimedByTag: interaction.user.tag, auto: false, source: '🎮 Discord',
+      });
+      return;
+    }
+
+    // ── Button: ask ticket opener whether it can be closed ──────────────────
+    // Public prompt (not ephemeral) so the ticket opener actually sees it and
+    // can respond — reuses the same confirm_close_/cancel_close customIds the
+    // direct "Ticket schließen" flow uses, so no separate handler is needed.
+    if (interaction.isButton() && interaction.customId === 'ask_close_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.reply({ content: '❌ Nur Staff kann nachfragen, ob das Ticket geschlossen werden soll.', ephemeral: true });
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('❓ Ticket schließen?')
+        .setDescription(`${interaction.user} möchte wissen, ob dieses Ticket geschlossen werden kann.`)
+        .setColor(0xFEE75C);
+
+      const yes = new ButtonBuilder()
+        .setCustomId(`confirm_close_${ticket.id}`)
+        .setLabel('Ja, schließen')
+        .setStyle(ButtonStyle.Danger);
+
+      const no = new ButtonBuilder()
+        .setCustomId('cancel_close')
+        .setLabel('Nein, offen lassen')
+        .setStyle(ButtonStyle.Secondary);
+
+      await interaction.reply({
+        content: `<@${ticket.user_id}>`,
+        embeds: [embed],
+        components: [new ActionRowBuilder().addComponents(yes, no)],
+      });
       return;
     }
 }

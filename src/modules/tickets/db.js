@@ -66,9 +66,13 @@ async function initSchema(p) {
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
       closed_at      DATETIME NULL,
       closed_by_id   VARCHAR(32),
-      closed_by_name VARCHAR(150)
+      closed_by_name VARCHAR(150),
+      claimed_by_id   VARCHAR(32),
+      claimed_by_name VARCHAR(150)
     ) ENGINE=InnoDB
   `);
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_by_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_by_name VARCHAR(150) DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS ticket_messages (
@@ -305,6 +309,28 @@ async function closeTicket(data) {
   `, data);
 }
 
+// "In Bearbeitung" is not a stored status value — it's derived as
+// status = 'open' AND claimed_by_id IS NOT NULL (see ticketStatus.js), so
+// none of the existing status = 'open' queries (limits, workload, stats)
+// need to change just because a ticket gets claimed.
+async function claimTicket(ticketId, { claimedById, claimedByName }) {
+  await query(
+    'UPDATE tickets SET claimed_by_id = :claimedById, claimed_by_name = :claimedByName WHERE id = :ticketId',
+    { ticketId, claimedById, claimedByName },
+  );
+}
+
+// Used by the "first staff reply auto-claims" trigger (see messageCreate.js)
+// — only claims if nobody already has, so it never steals an explicit claim.
+// Returns whether it actually claimed anything.
+async function claimTicketIfUnclaimed(ticketId, { claimedById, claimedByName }) {
+  const result = await query(
+    'UPDATE tickets SET claimed_by_id = :claimedById, claimed_by_name = :claimedByName WHERE id = :ticketId AND claimed_by_id IS NULL',
+    { ticketId, claimedById, claimedByName },
+  );
+  return result.affectedRows > 0;
+}
+
 async function getStats(guildId) {
   const rows = await query(`
     SELECT
@@ -375,6 +401,8 @@ module.exports = {
   updateTicketChannel,
   updateTicketCategory,
   closeTicket,
+  claimTicket,
+  claimTicketIfUnclaimed,
   getStats,
   getAvgResolutionMinutes,
   addMessage,

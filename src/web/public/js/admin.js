@@ -296,10 +296,22 @@ async function deleteCategoryConfirm() {
 // ── Tickets: read-only overview ─────────────────────────────────────────────
 let allTickets = [];
 
-function statusBadge(status) {
-  const cls   = status === 'open' ? 'badge-open'   : 'badge-closed';
-  const label = status === 'open' ? 'Offen'        : 'Geschlossen';
-  const icon  = status === 'open' ? 'bi-circle-fill' : 'bi-lock-fill';
+// "In Bearbeitung" isn't a stored status — it's status='open' with
+// claimed_by_id set (see db.js/routes.js's POST /tickets/:id/claim, and the
+// Discord-side Claim button / auto-claim-on-reply).
+function ticketDisplayStatus(t) {
+  if (t.status === 'closed') return 'closed';
+  return t.claimed_by_id ? 'in_progress' : 'open';
+}
+
+const STATUS_META = {
+  open:        { cls: 'badge-open',     label: 'Offen',          icon: 'bi-circle-fill' },
+  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung', icon: 'bi-person-fill-gear' },
+  closed:      { cls: 'badge-closed',   label: 'Geschlossen',    icon: 'bi-lock-fill' },
+};
+
+function statusBadge(t) {
+  const { cls, label, icon } = STATUS_META[ticketDisplayStatus(t)];
   return `<span class="ticket-badge ${cls}"><i class="bi ${icon} me-1" style="font-size:.6rem"></i>${label}</span>`;
 }
 function categoryClass(name) {
@@ -412,7 +424,7 @@ function renderTicketTable() {
   const category = document.getElementById('categoryFilter').value;
 
   const filtered = allTickets.filter(t => {
-    if (status   && t.status   !== status)   return false;
+    if (status   && ticketDisplayStatus(t) !== status) return false;
     if (category && t.category !== category) return false;
     if (search) {
       const h = `${t.subject} ${t.username} ${t.category}`.toLowerCase();
@@ -435,7 +447,7 @@ function renderTicketTable() {
       </td>
       <td>${catBadge(t.category)}</td>
       <td>${escapeHtml(t.username)}</td>
-      <td>${statusBadge(t.status)}</td>
+      <td>${statusBadge(t)}</td>
       <td class="text-muted small">${formatDate(t.created_at)}</td>
       <td class="text-end"><i class="bi bi-chevron-right text-muted"></i></td>
     </tr>

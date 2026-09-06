@@ -35,16 +35,21 @@
             <h5 id="ticketTitle" class="mb-1 fw-bold">Lade…</h5>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-2" id="ticketMeta"></div>
           </div>
-          <a id="transcriptBtn" href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm d-none">
-            <i class="bi bi-file-earmark-text me-1"></i>Transkript
-          </a>
+          <div class="d-flex gap-2 flex-shrink-0">
+            <button id="claimBtn" class="btn btn-success btn-sm d-none" onclick="claimTicket()">
+              <i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen
+            </button>
+            <a id="transcriptBtn" href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm d-none">
+              <i class="bi bi-file-earmark-text me-1"></i>Transkript
+            </a>
+          </div>
         </div>
       </div>
     </div>
 
     <p class="text-muted small mb-3">
-      <i class="bi bi-eye me-1"></i>Nur-Lese-Ansicht. Antworten, Schließen und Kategorie ändern erfolgt über Discord
-      (im Ticket-Kanal bzw. per <code>/kategorie</code>).
+      <i class="bi bi-eye me-1"></i>Antworten, Schließen und Kategorie ändern erfolgt über Discord
+      (im Ticket-Kanal bzw. per <code>/kategorie</code>). Übernehmen geht auch von hier aus.
     </p>
 
     <!-- Tab navigation -->

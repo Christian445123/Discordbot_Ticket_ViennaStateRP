@@ -85,6 +85,24 @@ async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content
     .catch(err => logger.error('Log-Kanal (Notiz) fehlgeschlagen:', err.message));
 }
 
+async function logTicketClaimed(discordClient, guildId, { ticket, claimedByTag, auto, source }) {
+  const logCh = await getLogChannel(discordClient, guildId);
+  if (!logCh) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🖐️ Ticket übernommen')
+    .setColor(0xFEE75C)
+    .addFields(
+      { name: 'Ticket-Nr.',      value: formatTicketRef(ticket),                                     inline: true },
+      { name: 'Übernommen von',  value: claimedByTag,                                                 inline: true },
+      { name: 'Ausgelöst durch', value: auto ? 'Automatisch (erste Antwort)' : (source || '🎮 Discord'), inline: true },
+    )
+    .setTimestamp();
+
+  await logCh.send({ embeds: [embed] })
+    .catch(err => logger.error('Log-Kanal (Ticket übernommen) fehlgeschlagen:', err.message));
+}
+
 async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory, newCategory, changedByTag }) {
   const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
@@ -140,6 +158,6 @@ async function logSystemAction(discordClient, guildId, { title, description, col
 }
 
 module.exports = {
-  logTicketCreated, logTicketClosed, logNoteAdded, logCategoryChanged, logCategoryConfigChanged,
+  logTicketCreated, logTicketClosed, logNoteAdded, logTicketClaimed, logCategoryChanged, logCategoryConfigChanged,
   logSystemAction,
 };
