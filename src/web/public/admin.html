@@ -166,10 +166,8 @@
             <input type="text" id="catEditDescription" class="form-control" maxlength="200" placeholder="Kurzbeschreibung" />
           </div>
           <div class="mb-3">
-            <label class="form-label text-muted small">Ping-Rolle <span class="text-muted">(wird bei neuen Tickets dieser Kategorie gepingt)</span></label>
-            <select id="catEditPingRole" class="form-select">
-              <option value="">Keine</option>
-            </select>
+            <label class="form-label text-muted small">Ping-Rollen <span class="text-muted">(werden bei neuen Tickets dieser Kategorie gepingt — beliebig viele auswählbar)</span></label>
+            <div id="catEditPingRoles" class="border rounded p-2" style="max-height:180px;overflow-y:auto;"></div>
           </div>
           <div class="mb-3">
             <label class="form-label text-muted small">Willkommensnachricht <span class="text-muted">(wird im Ticket-Kanal beim Öffnen angezeigt)</span></label>

@@ -66,9 +66,18 @@ async function loadGuildRoles() {
     guildRoles = res.ok ? await res.json() : [];
   } catch { guildRoles = []; }
 
-  const select = document.getElementById('catEditPingRole');
-  const options = guildRoles.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
-  select.innerHTML = `<option value="">Keine</option>${options}`;
+  const container = document.getElementById('catEditPingRoles');
+  container.innerHTML = guildRoles.length
+    ? guildRoles.map(r => `
+        <div class="form-check">
+          <input class="form-check-input ping-role-checkbox" type="checkbox" value="${r.id}" id="pingRole-${r.id}" />
+          <label class="form-check-label small" for="pingRole-${r.id}">${escapeHtml(r.name)}</label>
+        </div>`).join('')
+    : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
+}
+
+function collectPingRoleIds() {
+  return Array.from(document.querySelectorAll('#catEditPingRoles .ping-role-checkbox:checked')).map(cb => cb.value);
 }
 
 // Auslastung: jede Kategorie im Verhältnis zu allen aktuell offenen Tickets
@@ -175,13 +184,17 @@ function fillCategoryForm(c) {
   document.getElementById('catEditNameInput').value    = c?.name || '';
   document.getElementById('catEditEmoji').value        = c?.emoji || '';
   document.getElementById('catEditDescription').value  = c?.description || '';
-  document.getElementById('catEditPingRole').value     = c?.ping_target_id || '';
   document.getElementById('catEditWelcome').value      = c?.welcome_message || '';
   document.getElementById('catEditAutoMsg').value      = c?.auto_message || '';
   document.getElementById('catEditAutoChannel').checked = c ? !!c.auto_message_channel : true;
   document.getElementById('catEditAutoDm').checked      = c ? !!c.auto_message_dm : false;
   document.getElementById('catEditAlert').className     = 'alert d-none';
   renderQuestionRows(c?.questions || []);
+
+  const checkedRoleIds = new Set(c?.ping_role_ids || []);
+  document.querySelectorAll('#catEditPingRoles .ping-role-checkbox').forEach(cb => {
+    cb.checked = checkedRoleIds.has(cb.value);
+  });
 }
 
 function openCategoryEdit(name) {
@@ -214,7 +227,7 @@ async function saveCategoryEdit() {
   const payload = {
     emoji:                 document.getElementById('catEditEmoji').value.trim(),
     description:           document.getElementById('catEditDescription').value.trim(),
-    ping_target_id:        document.getElementById('catEditPingRole').value,
+    ping_role_ids:         collectPingRoleIds(),
     welcome_message:       document.getElementById('catEditWelcome').value.trim(),
     auto_message:          document.getElementById('catEditAutoMsg').value.trim(),
     auto_message_channel:  document.getElementById('catEditAutoChannel').checked ? 1 : 0,

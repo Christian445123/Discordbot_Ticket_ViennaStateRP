@@ -15,6 +15,7 @@ const db             = require('./db');
 const ticketLog      = require('./ticketLog');
 const categoryNotify = require('./categoryNotify');
 const questions      = require('./questions');
+const pingRoles      = require('./pingRoles');
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
@@ -103,12 +104,17 @@ async function createTicketChannel(interaction, category, subject) {
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
     });
   }
-  // Make sure a category's ping target can actually see the channel it gets pinged into
-  if (categoryCfg?.ping_target_id && !overwrites.some(o => o.id === categoryCfg.ping_target_id)) {
-    overwrites.push({
-      id:    categoryCfg.ping_target_id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    });
+  // Make sure a category's ping target(s) can actually see the channel they get pinged into
+  const pingTargetIds = categoryCfg?.ping_type === 'role'
+    ? pingRoles.parseStoredPingRoleIds(categoryCfg.ping_role_ids)
+    : (categoryCfg?.ping_type === 'user' && categoryCfg.ping_target_id ? [categoryCfg.ping_target_id] : []);
+  for (const id of pingTargetIds) {
+    if (!overwrites.some(o => o.id === id)) {
+      overwrites.push({
+        id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+      });
+    }
   }
 
   const channel = await guild.channels.create({

@@ -33,6 +33,7 @@ async function initSchema(p) {
       description           VARCHAR(255) DEFAULT '',
       ping_type             VARCHAR(10),
       ping_target_id        VARCHAR(32),
+      ping_role_ids         TEXT,
       welcome_message       TEXT,
       auto_message          TEXT,
       auto_message_channel  TINYINT(1) DEFAULT 1,
@@ -45,6 +46,7 @@ async function initSchema(p) {
   // Migrations: add columns introduced after the initial release
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS welcome_message TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS questions TEXT DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ping_role_ids TEXT DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -150,6 +152,7 @@ async function insertCategory(data) {
     description:           data.description ?? '',
     ping_type:             data.ping_type ?? null,
     ping_target_id:        data.ping_target_id ?? null,
+    ping_role_ids:         data.ping_role_ids ?? null,
     welcome_message:       ensureWelcomeMessage(data.name, data.welcome_message),
     auto_message:          ensureAutoMessage(data.name, data.auto_message),
     auto_message_channel:  data.auto_message_channel ?? 1,
@@ -159,9 +162,9 @@ async function insertCategory(data) {
   };
   await query(`
     INSERT INTO categories
-      (guild_id, name, emoji, description, ping_type, ping_target_id, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order)
+      (guild_id, name, emoji, description, ping_type, ping_target_id, ping_role_ids, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order)
     VALUES
-      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order)
+      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :ping_role_ids, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order)
   `, payload);
 }
 
@@ -217,6 +220,12 @@ async function backfillCategoryDefaults(guildId) {
     if (!c.auto_message)    updates.auto_message    = null;
     if (!c.description && defaultDescriptionByName.has(c.name)) {
       updates.description = defaultDescriptionByName.get(c.name);
+    }
+    // Categories written before multi-role ping support only have a single
+    // role in ping_target_id — carry it over into ping_role_ids once so it
+    // keeps pinging without needing to be re-saved.
+    if (c.ping_type === 'role' && !c.ping_role_ids && c.ping_target_id) {
+      updates.ping_role_ids = JSON.stringify([c.ping_target_id]);
     }
     if (Object.keys(updates).length) await updateCategory(guildId, c.name, updates);
   }

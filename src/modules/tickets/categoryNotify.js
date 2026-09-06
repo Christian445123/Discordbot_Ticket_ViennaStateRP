@@ -4,12 +4,16 @@
 // ticket is created (see component.js's createTicketChannel).
 
 const { EmbedBuilder } = require('discord.js');
-const db     = require('./db');
-const logger = require('../../utils/logger');
+const db        = require('./db');
+const pingRoles = require('./pingRoles');
+const logger    = require('../../utils/logger');
 
 function buildPingMention(categoryCfg) {
   if (!categoryCfg) return null;
-  if (categoryCfg.ping_type === 'role') return `<@&${categoryCfg.ping_target_id}>`;
+  if (categoryCfg.ping_type === 'role') {
+    const roleIds = pingRoles.parseStoredPingRoleIds(categoryCfg.ping_role_ids);
+    return roleIds.length ? roleIds.map(id => `<@&${id}>`).join(' ') : null;
+  }
   if (categoryCfg.ping_type === 'user') return `<@${categoryCfg.ping_target_id}>`;
   return null;
 }

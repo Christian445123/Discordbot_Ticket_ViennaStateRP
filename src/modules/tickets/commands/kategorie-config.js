@@ -4,20 +4,26 @@ const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('disc
 const db        = require('../db');
 const ticketLog = require('../ticketLog');
 const questions = require('../questions');
+const pingRoles = require('../pingRoles');
 
 function pingMention(c) {
-  if (c.ping_type === 'role') return `<@&${c.ping_target_id}>`;
+  if (c.ping_type === 'role') {
+    const roleIds = pingRoles.parseStoredPingRoleIds(c.ping_role_ids);
+    return roleIds.length ? roleIds.map(id => `<@&${id}>`).join(' ') : 'Keine';
+  }
   if (c.ping_type === 'user') return `<@${c.ping_target_id}>`;
   return 'Keine';
 }
 
+// Slash command only offers a single role (Discord.js has no multi-role
+// option type) — use the web panel to ping several roles at once.
 function resolvePingTarget(interaction) {
   const role = interaction.options.getRole('ping_rolle');
   const user = interaction.options.getUser('ping_user');
   if (role && user) return { error: '❌ Bitte entweder eine Rolle **oder** eine Person angeben, nicht beides.' };
-  if (role) return { pingType: 'role', pingTargetId: role.id, pingGiven: true };
-  if (user) return { pingType: 'user', pingTargetId: user.id, pingGiven: true };
-  return { pingType: null, pingTargetId: null, pingGiven: false };
+  if (role) return { pingType: 'role', pingTargetId: null, pingRoleIds: JSON.stringify([role.id]), pingGiven: true };
+  if (user) return { pingType: 'user', pingTargetId: user.id, pingRoleIds: null, pingGiven: true };
+  return { pingType: null, pingTargetId: null, pingRoleIds: null, pingGiven: false };
 }
 
 function categoryEmbed(title, c) {
@@ -109,6 +115,7 @@ module.exports = {
         description:           interaction.options.getString('beschreibung') || '',
         ping_type:             ping.pingType,
         ping_target_id:        ping.pingTargetId,
+        ping_role_ids:         ping.pingRoleIds,
         welcome_message:       interaction.options.getString('willkommensnachricht') || null,
         auto_message:          interaction.options.getString('auto_nachricht') || null,
         auto_message_channel:  autoImKanal ? 1 : 0,
@@ -144,7 +151,7 @@ module.exports = {
       const updates = {};
       if (emoji !== null)          updates.emoji = emoji;
       if (beschreibung !== null)   updates.description = beschreibung;
-      if (ping.pingGiven)          { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; }
+      if (ping.pingGiven)          { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; updates.ping_role_ids = ping.pingRoleIds; }
       if (willkommen !== null)     updates.welcome_message = willkommen;
       if (autoNachricht !== null)  updates.auto_message = autoNachricht;
       if (autoImKanalOpt !== null) updates.auto_message_channel = autoImKanalOpt ? 1 : 0;

@@ -18,6 +18,7 @@ const express      = require('express');
 const db           = require('./db');
 const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
+const pingRolesMod = require('./pingRoles');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
@@ -237,8 +238,9 @@ module.exports = function apiRoutes(discordClient) {
       const countByName = Object.fromEntries(counts.map(c => [c.category, c.open_count]));
       res.json(categories.map(c => ({
         ...c,
-        open_count: countByName[c.name] ?? 0,
-        questions:  questionsMod.parseStoredQuestions(c.questions),
+        open_count:    countByName[c.name] ?? 0,
+        questions:     questionsMod.parseStoredQuestions(c.questions),
+        ping_role_ids: pingRolesMod.parseStoredPingRoleIds(c.ping_role_ids),
       })));
     } catch (err) {
       logger.error('Admin categories error:', err.message);
@@ -257,13 +259,15 @@ module.exports = function apiRoutes(discordClient) {
 
       const { count } = await db.getCategoryCount(guildId);
       const sanitizedQuestions = questionsMod.sanitizeQuestions(req.body.questions);
+      const sanitizedPingRoleIds = pingRolesMod.sanitizePingRoleIds(req.body.ping_role_ids);
       await db.insertCategory({
         guild_id: guildId,
         name,
         emoji:                 req.body.emoji || '🎫',
         description:           req.body.description || '',
-        ping_type:             req.body.ping_target_id ? 'role' : null,
-        ping_target_id:        req.body.ping_target_id || null,
+        ping_type:             sanitizedPingRoleIds ? 'role' : null,
+        ping_target_id:        null,
+        ping_role_ids:         sanitizedPingRoleIds ? JSON.stringify(sanitizedPingRoleIds) : null,
         welcome_message:       req.body.welcome_message || null,
         auto_message:          req.body.auto_message || null,
         auto_message_channel:  req.body.auto_message_channel ? 1 : 0,
@@ -289,17 +293,22 @@ module.exports = function apiRoutes(discordClient) {
       const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
 
-      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji', 'ping_target_id'];
+      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji'];
       const updates = {};
       for (const key of allowed) {
         if (Object.prototype.hasOwnProperty.call(req.body, key)) {
           updates[key] = req.body[key] === '' ? null : req.body[key];
         }
       }
-      // ping_target_id is a role ID here (web only offers role pings, not
-      // individual-user pings — that stays a /kategorie-config-only option).
-      if (Object.prototype.hasOwnProperty.call(updates, 'ping_target_id')) {
-        updates.ping_type = updates.ping_target_id ? 'role' : null;
+      // ping_role_ids is an array of role IDs here (web only offers role
+      // pings, not individual-user pings — that stays a /kategorie-config-only
+      // option). Replaces whatever was configured before, including a legacy
+      // single ping_target_id or a ping set via the slash command.
+      if (Object.prototype.hasOwnProperty.call(req.body, 'ping_role_ids')) {
+        const sanitizedPingRoleIds = pingRolesMod.sanitizePingRoleIds(req.body.ping_role_ids);
+        updates.ping_type      = sanitizedPingRoleIds ? 'role' : null;
+        updates.ping_target_id = null;
+        updates.ping_role_ids  = sanitizedPingRoleIds ? JSON.stringify(sanitizedPingRoleIds) : null;
       }
       // questions is an array in the request body, not a plain string field —
       // handled separately from the generic `allowed` loop above. An empty/
