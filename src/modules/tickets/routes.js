@@ -15,12 +15,20 @@
 // forever instead of failing visibly.
 
 const express      = require('express');
+const path         = require('path');
+const { exec }     = require('child_process');
 const db           = require('./db');
 const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
 const pingRolesMod = require('./pingRoles');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
+
+// Repo root (this file lives at src/modules/tickets/) — where git/npm/pm2
+// commands below run, regardless of the process's actual cwd.
+const REPO_ROOT   = path.join(__dirname, '..', '..', '..');
+// Matches ecosystem.config.js's apps[0].name.
+const PM2_APP_NAME = 'ticket-bot';
 
 function escHtml(str) {
   return String(str ?? '')
@@ -86,6 +94,28 @@ h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex
 <div class="msgs">${msgsHtml || '<div class="empty">Keine Nachrichten vorhanden.</div>'}</div>
 <div class="footer">Transkript generiert am ${new Date().toLocaleString('de-AT')} &mdash; ${messages.length} Nachrichten</div>
 </div></body></html>`;
+}
+
+// Runs a fixed shell command (no user input is ever interpolated into any
+// command string below) in the repo root and resolves instead of rejecting,
+// so callers can inspect { ok, stdout, stderr } without try/catch nesting.
+function run(cmd) {
+  return new Promise(resolve => {
+    exec(cmd, { cwd: REPO_ROOT, timeout: 120_000 }, (err, stdout, stderr) => {
+      resolve({ ok: !err, stdout: stdout?.trim() || '', stderr: (stderr?.trim() || err?.message) || '' });
+    });
+  });
+}
+
+// Fire-and-forget after the HTTP response for the triggering request has
+// already been sent — `pm2 restart` kills this very process, so anything
+// still in flight past that point is lost.
+function scheduleRestart() {
+  setTimeout(() => {
+    exec(`pm2 restart ${PM2_APP_NAME}`, { cwd: REPO_ROOT }, err => {
+      if (err) logger.error('PM2-Neustart fehlgeschlagen:', err.message);
+    });
+  }, 500);
 }
 
 module.exports = function apiRoutes(discordClient) {
@@ -349,6 +379,54 @@ module.exports = function apiRoutes(discordClient) {
     } catch (err) {
       logger.error('Admin category delete error:', err.message);
       res.status(500).json({ error: 'Fehler beim Löschen' });
+    }
+  });
+
+  // ── Bot deploy & restart (PM2) ───────────────────────────────────────────────
+  // Affects the whole bot process — every guild it serves, not just the one
+  // currently selected in the panel — so every call is logged both to the
+  // server log and (best-effort) to the currently selected guild's log channel.
+  router.post('/admin/system/deploy', async (req, res) => {
+    const who = `${req.user.username} (${req.user.id})`;
+    logger.warn(`Deploy ausgelöst von ${who}`);
+    try {
+      const status = await run('git status --porcelain');
+      if (!status.ok) {
+        return res.status(500).json({ error: 'git status fehlgeschlagen — läuft der Bot in einem Git-Repository?', stderr: status.stderr });
+      }
+      if (status.stdout) {
+        return res.status(409).json({ error: 'Deploy abgebrochen: nicht committete Änderungen auf dem Server.', stdout: status.stdout });
+      }
+
+      const pull = await run('git pull');
+      if (!pull.ok) {
+        return res.status(500).json({ error: 'git pull fehlgeschlagen', stdout: pull.stdout, stderr: pull.stderr });
+      }
+
+      const install = await run('npm install');
+      if (!install.ok) {
+        return res.status(500).json({ error: 'npm install fehlgeschlagen', stdout: pull.stdout, stderr: install.stderr });
+      }
+
+      await ticketLog.logSystemAction(discordClient, req.guildId, { action: 'Deploy', triggeredByTag: `${req.user.username} (Web)` });
+      res.json({ success: true, stdout: [pull.stdout, install.stdout].filter(Boolean).join('\n\n') });
+      scheduleRestart();
+    } catch (err) {
+      logger.error('Deploy fehlgeschlagen:', err.message);
+      res.status(500).json({ error: `Deploy fehlgeschlagen: ${err.message}` });
+    }
+  });
+
+  router.post('/admin/system/restart', async (req, res) => {
+    const who = `${req.user.username} (${req.user.id})`;
+    logger.warn(`Neustart ausgelöst von ${who}`);
+    try {
+      await ticketLog.logSystemAction(discordClient, req.guildId, { action: 'Neustart', triggeredByTag: `${req.user.username} (Web)` });
+      res.json({ success: true });
+      scheduleRestart();
+    } catch (err) {
+      logger.error('Neustart fehlgeschlagen:', err.message);
+      res.status(500).json({ error: `Neustart fehlgeschlagen: ${err.message}` });
     }
   });
 

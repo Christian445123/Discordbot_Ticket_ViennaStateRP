@@ -45,6 +45,9 @@
         <button class="tab-btn" onclick="switchTab('tickets')" id="tab-tickets">
           <i class="bi bi-ticket-perforated-fill me-1"></i>Tickets
         </button>
+        <button class="tab-btn" onclick="switchTab('system')" id="tab-system">
+          <i class="bi bi-hdd-stack-fill me-1"></i>Bot-Verwaltung
+        </button>
       </div>
 
       <!-- ── Categories tab ─────────────────────────────────────────────────── -->
@@ -134,6 +137,47 @@
         <div id="emptyHint" class="text-center text-muted mt-4 py-3 d-none">
           <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>Keine Tickets gefunden.
         </div>
+      </div>
+
+      <!-- ── System tab (deploy & restart) ─────────────────────────────────── -->
+      <div id="pane-system" class="d-none">
+        <p class="text-muted small mb-4">
+          Betrifft den gesamten Bot-Prozess und damit <strong>alle</strong> Server, auf denen er läuft — nicht nur den
+          aktuell ausgewählten.
+        </p>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="card bg-dark-card border-0 shadow-sm h-100">
+              <div class="card-body">
+                <h6 class="fw-semibold mb-1"><i class="bi bi-cloud-arrow-down-fill text-primary me-2"></i>Deploy</h6>
+                <p class="text-muted small">
+                  Holt den neuesten Stand per <code>git pull</code>, installiert Abhängigkeiten per
+                  <code>npm install</code> und startet den Bot danach neu. Bricht ab, wenn auf dem Server nicht
+                  committete Änderungen liegen.
+                </p>
+                <button class="btn btn-primary btn-sm px-3" id="deployBtn" onclick="triggerDeploy()">
+                  <i class="bi bi-cloud-arrow-down-fill me-1"></i>Jetzt deployen
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card bg-dark-card border-0 shadow-sm h-100">
+              <div class="card-body">
+                <h6 class="fw-semibold mb-1"><i class="bi bi-arrow-clockwise text-warning me-2"></i>Neustart</h6>
+                <p class="text-muted small">
+                  Startet den Bot-Prozess per PM2 neu, ohne neuen Code zu holen. Alle Server sind für ein paar
+                  Sekunden nicht erreichbar.
+                </p>
+                <button class="btn btn-outline-warning btn-sm px-3" id="restartBtn" onclick="triggerRestart()">
+                  <i class="bi bi-arrow-clockwise me-1"></i>Jetzt neustarten
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="systemAlert" class="alert d-none mt-3 mb-0"></div>
+        <pre id="systemOutput" class="d-none mt-3 mb-0 p-3 rounded bg-dark-card small" style="max-height:320px;overflow-y:auto;white-space:pre-wrap;"></pre>
       </div>
 
     </div>

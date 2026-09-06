@@ -1,7 +1,7 @@
 'use strict';
 
 let currentUser  = null;
-let activeTab    = 'categories'; // 'categories' | 'tickets'
+let activeTab    = 'categories'; // 'categories' | 'tickets' | 'system'
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -35,7 +35,7 @@ async function loadUser() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  ['categories', 'tickets'].forEach(t => {
+  ['categories', 'tickets', 'system'].forEach(t => {
     document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
   });
@@ -439,6 +439,65 @@ function renderTicketTable() {
 document.getElementById('searchInput').addEventListener('input', renderTicketTable);
 document.getElementById('statusFilter').addEventListener('change', renderTicketTable);
 document.getElementById('categoryFilter').addEventListener('change', renderTicketTable);
+
+// ── System: deploy & restart (PM2) ───────────────────────────────────────────
+// Affects the whole bot process (every guild it serves), not just the one
+// currently selected in the panel.
+function setSystemBusy(busy) {
+  document.getElementById('deployBtn').disabled  = busy;
+  document.getElementById('restartBtn').disabled = busy;
+}
+
+function showSystemAlert(cls, text) {
+  const el = document.getElementById('systemAlert');
+  el.className   = `alert ${cls}`;
+  el.textContent = text;
+}
+
+function showSystemOutput(text) {
+  const el = document.getElementById('systemOutput');
+  el.textContent = text || '';
+  el.classList.toggle('d-none', !text);
+}
+
+async function triggerDeploy() {
+  if (!confirm('Wirklich deployen? Holt den neuesten Stand und startet danach den Bot für ALLE Server neu.')) return;
+  setSystemBusy(true);
+  showSystemAlert('alert-info', 'Deploye… (git pull, npm install, danach Neustart)');
+  showSystemOutput('');
+  try {
+    const res  = await apiFetch('/api/admin/system/deploy', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showSystemAlert('alert-success', '✓ Deploy erfolgreich — Bot startet neu…');
+      showSystemOutput(data.stdout);
+    } else {
+      showSystemAlert('alert-danger', data.error || 'Deploy fehlgeschlagen');
+      showSystemOutput([data.stdout, data.stderr].filter(Boolean).join('\n\n'));
+    }
+  } catch {
+    showSystemAlert('alert-danger', 'Netzwerkfehler');
+  } finally {
+    setSystemBusy(false);
+  }
+}
+
+async function triggerRestart() {
+  if (!confirm('Bot jetzt neustarten? Er ist danach für ALLE Server kurz nicht erreichbar.')) return;
+  setSystemBusy(true);
+  showSystemAlert('alert-info', 'Starte neu…');
+  showSystemOutput('');
+  try {
+    const res  = await apiFetch('/api/admin/system/restart', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) showSystemAlert('alert-success', '✓ Neustart ausgelöst.');
+    else        showSystemAlert('alert-danger', data.error || 'Neustart fehlgeschlagen');
+  } catch {
+    showSystemAlert('alert-danger', 'Netzwerkfehler');
+  } finally {
+    setSystemBusy(false);
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
