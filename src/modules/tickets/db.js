@@ -40,6 +40,7 @@ async function initSchema(p) {
       auto_message_dm       TINYINT(1) DEFAULT 0,
       questions             TEXT,
       sort_order            INT DEFAULT 0,
+      ticket_count          INT DEFAULT 0,
       UNIQUE KEY uniq_guild_category (guild_id, name)
     ) ENGINE=InnoDB
   `);
@@ -47,6 +48,7 @@ async function initSchema(p) {
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS welcome_message TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS questions TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ping_role_ids TEXT DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ticket_count INT DEFAULT 0`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -185,6 +187,17 @@ async function updateCategory(guildId, name, data) {
 
 async function deleteCategory(guildId, name) {
   await query('DELETE FROM categories WHERE guild_id = :guildId AND name = :name', { guildId, name });
+}
+
+// Per-category ticket counter — source of both the ticket's stored
+// ticket_number and its channel name (see component.js), so "Bewerbung-001"
+// is always the first ticket ever opened in the "Bewerbung" category,
+// independent of how many tickets other categories have had.
+async function incrementCategoryTicketCount(guildId, name) {
+  await query(
+    'UPDATE categories SET ticket_count = ticket_count + 1 WHERE guild_id = :guildId AND name = :name',
+    { guildId, name },
+  );
 }
 
 // Open-ticket count per category — the raw numbers the "Auslastung" (load)
@@ -347,6 +360,7 @@ module.exports = {
   insertCategory,
   updateCategory,
   deleteCategory,
+  incrementCategoryTicketCount,
   getOpenCountsByCategory,
   createTicket,
   getTicketById,

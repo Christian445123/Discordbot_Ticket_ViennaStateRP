@@ -40,9 +40,9 @@ async function loadUser() {
 }
 
 function renderHeader(ticket) {
-  document.title = `Ticket #${String(ticket.ticket_number).padStart(4,'0')} – Admin`;
+  document.title = `Ticket #${String(ticket.ticket_number).padStart(3,'0')} – Admin`;
   document.getElementById('ticketTitle').textContent =
-    `Ticket #${String(ticket.ticket_number).padStart(4,'0')} – ${ticket.subject || '(kein Betreff)'}`;
+    `Ticket #${String(ticket.ticket_number).padStart(3,'0')} – ${ticket.subject || '(kein Betreff)'}`;
 
   const sCls   = ticket.status === 'open' ? 'badge-open'    : 'badge-closed';
   const sLabel = ticket.status === 'open' ? 'Offen'         : 'Geschlossen';

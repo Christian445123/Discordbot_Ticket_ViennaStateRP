@@ -14,6 +14,13 @@ async function getLogChannel(discordClient, guildId) {
   return guild?.channels.cache.get(guildCfg.log_channel_id) ?? null;
 }
 
+// Ticket numbers are sequential per category (see component.js), so two
+// tickets in different categories can share the same number — always pair
+// the number with its category, e.g. "Bewerbung #007", never a bare "#007".
+function formatTicketRef(ticket) {
+  return `${ticket.category} #${String(ticket.ticket_number).padStart(3, '0')}`;
+}
+
 async function logTicketCreated(discordClient, guildId, { channel, username, category, source }) {
   const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
@@ -46,7 +53,7 @@ async function logTicketClosed(discordClient, guildId, { ticket, closedByTag, so
     .setTitle('📋 Ticket geschlossen')
     .setColor(0xED4245)
     .addFields(
-      { name: 'Ticket-Nr.',      value: `#${String(ticket.ticket_number).padStart(4, '0')}`, inline: true },
+      { name: 'Ticket-Nr.',      value: formatTicketRef(ticket),                             inline: true },
       { name: 'Erstellt von',    value: `<@${ticket.user_id}>`,                               inline: true },
       { name: 'Geschlossen von', value: closedByTag,                                          inline: true },
       { name: 'Nachrichten',     value: `${messages.length}`,                                 inline: true },
@@ -68,7 +75,7 @@ async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content
     .setTitle('📝 Notiz hinzugefügt')
     .setColor(0x5865F2)
     .addFields(
-      { name: 'Ticket-Nr.', value: `#${String(ticket.ticket_number).padStart(4, '0')}`, inline: true },
+      { name: 'Ticket-Nr.', value: formatTicketRef(ticket), inline: true },
       { name: 'Von',        value: authorTag,                                            inline: true },
       { name: 'Notiz',      value: content.length > 500 ? `${content.slice(0, 500)}…` : content, inline: false },
     )
@@ -86,7 +93,7 @@ async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory,
     .setTitle('🏷️ Kategorie geändert')
     .setColor(0x5865F2)
     .addFields(
-      { name: 'Ticket-Nr.',   value: `#${String(ticket.ticket_number).padStart(4, '0')}`, inline: true },
+      { name: 'Ticket-Nr.',   value: formatTicketRef(ticket), inline: true },
       { name: 'Von',          value: oldCategory,                                          inline: true },
       { name: 'Zu',           value: newCategory,                                          inline: true },
       { name: 'Geändert von', value: changedByTag,                                         inline: true },

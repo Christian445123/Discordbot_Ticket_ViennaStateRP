@@ -423,7 +423,7 @@ function renderTicketTable() {
 
   tbody.innerHTML = filtered.map(t => `
     <tr onclick="window.location='/admin/ticket/${t.id}'" style="cursor:pointer">
-      <td class="text-muted fw-mono">#${String(t.ticket_number).padStart(4,'0')}</td>
+      <td class="text-muted fw-mono">#${String(t.ticket_number).padStart(3,'0')}</td>
       <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
         ${escapeHtml(t.subject || '(kein Betreff)')}
       </td>

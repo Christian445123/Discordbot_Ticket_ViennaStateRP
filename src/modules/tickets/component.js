@@ -17,6 +17,25 @@ const categoryNotify = require('./categoryNotify');
 const questions      = require('./questions');
 const pingRoles      = require('./pingRoles');
 
+// Discord channel names only allow lowercase letters/digits/hyphens (it
+// silently strips/mangles anything else), so a category name like "Bewerbung"
+// or "Bug-Report" needs turning into "bewerbung"/"bug-report" first. Handles
+// German umlauts explicitly rather than just dropping them, since category
+// names are admin-entered German text.
+function slugifyCategoryName(name) {
+  // Any other diacritic/symbol just falls through to the generic strip below.
+  const slug = String(name)
+    .toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'ticket';
+}
+
+function formatTicketNumber(ticketNumber) {
+  return String(ticketNumber).padStart(3, '0');
+}
+
 // ── Helper: close a ticket ────────────────────────────────────────────────────
 async function closeTicket(interaction, ticket) {
   const { guild } = interaction;
@@ -67,20 +86,24 @@ async function createTicketChannel(interaction, category, subject) {
   const existing = await db.getOpenTicketByUser(guild.id, user.id);
   if (existing) {
     const ch = guild.channels.cache.get(existing.channel_id);
-    const ref = ch ? `${ch}` : `#${String(existing.ticket_number).padStart(4, '0')}`;
+    const ref = ch ? `${ch}` : `${slugifyCategoryName(existing.category)}-${formatTicketNumber(existing.ticket_number)}`;
     return interaction.reply({
       content: `❌ Du hast bereits ein offenes Ticket: ${ref}`,
       ephemeral: true,
     });
   }
 
-  await db.incrementTicketCount(guild.id);
-  const { ticket_count } = await db.getTicketCount(guild.id);
-  const guildCfg = await db.getGuild(guild.id);
+  // Ticket numbers (and the channel name below) are sequential per category —
+  // "Bewerbung-001" is the first ticket ever opened in "Bewerbung", regardless
+  // of how many tickets other categories have had.
+  await db.incrementCategoryTicketCount(guild.id, category);
+  const categoryCfg = await db.getCategoryByName(guild.id, category);
+  const guildCfg    = await db.getGuild(guild.id);
+  const ticketNumber = categoryCfg?.ticket_count ?? 1;
 
   // Insert ticket record (channel_id set after channel creation)
   const result = await db.createTicket({
-    ticket_number: ticket_count,
+    ticket_number: ticketNumber,
     guild_id:      guild.id,
     channel_id:    null,
     user_id:       user.id,
@@ -89,8 +112,6 @@ async function createTicketChannel(interaction, category, subject) {
     subject: subject || '(kein Betreff)',
   });
   const ticketId = result.lastInsertRowid;
-
-  const categoryCfg = await db.getCategoryByName(guild.id, category);
 
   // Build permission overwrites
   const overwrites = [
@@ -118,7 +139,7 @@ async function createTicketChannel(interaction, category, subject) {
   }
 
   const channel = await guild.channels.create({
-    name:              `ticket-${String(ticket_count).padStart(4, '0')}`,
+    name:              `${slugifyCategoryName(category)}-${formatTicketNumber(ticketNumber)}`,
     type:              ChannelType.GuildText,
     parent:            guildCfg?.ticket_category_id ?? null,
     permissionOverwrites: overwrites,
@@ -140,7 +161,7 @@ async function createTicketChannel(interaction, category, subject) {
       { name: '📝 Angaben',      value: subject || '(keine Angaben)', inline: false },
     )
     .setThumbnail(guild.iconURL() ?? null)
-    .setFooter({ text: `Ticket #${String(ticket_count).padStart(4, '0')} · Support-System` })
+    .setFooter({ text: `Ticket #${formatTicketNumber(ticketNumber)} · Support-System` })
     .setTimestamp();
 
   const closeBtn = new ButtonBuilder()

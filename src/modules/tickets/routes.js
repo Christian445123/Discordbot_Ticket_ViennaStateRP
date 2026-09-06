@@ -41,7 +41,7 @@ function buildAvatarUrl(user) {
 }
 
 function generateTranscript(ticket, messages) {
-  const ticketNum = String(ticket.ticket_number).padStart(4, '0');
+  const ticketNum = String(ticket.ticket_number).padStart(3, '0');
 
   const msgsHtml = messages.map(m => {
     const attachHtml = m.attachments
