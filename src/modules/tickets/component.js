@@ -82,24 +82,32 @@ async function createTicketChannel(interaction, category, subject) {
 
   await db.ensureGuildWithDefaults(guild.id);
 
-  // Prevent duplicate open ticket
-  const existing = await db.getOpenTicketByUser(guild.id, user.id);
-  if (existing) {
-    const ch = guild.channels.cache.get(existing.channel_id);
-    const ref = ch ? `${ch}` : `${slugifyCategoryName(existing.category)}-${formatTicketNumber(existing.ticket_number)}`;
-    return interaction.reply({
-      content: `❌ Du hast bereits ein offenes Ticket: ${ref}`,
-      ephemeral: true,
-    });
+  const categoryCfg = await db.getCategoryByName(guild.id, category);
+
+  // Per-category limit on simultaneously open tickets (categories.max_open_tickets,
+  // configurable via /kategorie-config or the web panel; null = unlimited). A
+  // user can have open tickets in several categories at once, each up to its
+  // own category's limit — there is no separate server-wide cap.
+  if (categoryCfg?.max_open_tickets != null) {
+    const openInCategory = await db.getOpenTicketsByUserAndCategory(guild.id, user.id, category);
+    if (openInCategory.length >= categoryCfg.max_open_tickets) {
+      const blocking = openInCategory[0];
+      const ch  = guild.channels.cache.get(blocking.channel_id);
+      const ref = ch ? `${ch}` : `${slugifyCategoryName(category)}-${formatTicketNumber(blocking.ticket_number)}`;
+      return interaction.reply({
+        content: `❌ Du hast bereits das Maximum von ${categoryCfg.max_open_tickets} offenen Ticket(s) in der Kategorie **${category}** erreicht: ${ref}`,
+        ephemeral: true,
+      });
+    }
   }
 
   // Ticket numbers (and the channel name below) are sequential per category —
   // "Bewerbung-001" is the first ticket ever opened in "Bewerbung", regardless
   // of how many tickets other categories have had.
   await db.incrementCategoryTicketCount(guild.id, category);
-  const categoryCfg = await db.getCategoryByName(guild.id, category);
-  const guildCfg    = await db.getGuild(guild.id);
-  const ticketNumber = categoryCfg?.ticket_count ?? 1;
+  const updatedCategoryCfg = await db.getCategoryByName(guild.id, category);
+  const guildCfg      = await db.getGuild(guild.id);
+  const ticketNumber  = updatedCategoryCfg?.ticket_count ?? 1;
 
   // Insert ticket record (channel_id set after channel creation)
   const result = await db.createTicket({

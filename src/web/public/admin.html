@@ -190,6 +190,10 @@
             <input type="text" id="catEditDescription" class="form-control" maxlength="200" placeholder="Kurzbeschreibung" />
           </div>
           <div class="mb-3">
+            <label class="form-label text-muted small">Max. offene Tickets pro Nutzer <span class="text-muted">(leer = unbegrenzt; jeder Nutzer darf hier gleichzeitig höchstens so viele offene Tickets haben)</span></label>
+            <input type="number" id="catEditMaxOpenTickets" class="form-control" min="0" step="1" placeholder="unbegrenzt" style="max-width:160px" />
+          </div>
+          <div class="mb-3">
             <label class="form-label text-muted small">Ping-Rollen <span class="text-muted">(werden bei neuen Tickets dieser Kategorie gepingt — beliebig viele auswählbar)</span></label>
             <div id="catEditPingRoles" class="border rounded p-2" style="max-height:180px;overflow-y:auto;"></div>
           </div>

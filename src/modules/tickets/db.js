@@ -41,6 +41,7 @@ async function initSchema(p) {
       questions             TEXT,
       sort_order            INT DEFAULT 0,
       ticket_count          INT DEFAULT 0,
+      max_open_tickets      INT DEFAULT 1,
       UNIQUE KEY uniq_guild_category (guild_id, name)
     ) ENGINE=InnoDB
   `);
@@ -49,6 +50,7 @@ async function initSchema(p) {
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS questions TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ping_role_ids TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ticket_count INT DEFAULT 0`).catch(() => {});
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS max_open_tickets INT DEFAULT 1`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -161,12 +163,13 @@ async function insertCategory(data) {
     auto_message_dm:       data.auto_message_dm ?? 0,
     questions:             data.questions ?? null,
     sort_order:            data.sort_order ?? 0,
+    max_open_tickets:      data.max_open_tickets === undefined ? 1 : data.max_open_tickets,
   };
   await query(`
     INSERT INTO categories
-      (guild_id, name, emoji, description, ping_type, ping_target_id, ping_role_ids, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order)
+      (guild_id, name, emoji, description, ping_type, ping_target_id, ping_role_ids, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order, max_open_tickets)
     VALUES
-      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :ping_role_ids, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order)
+      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :ping_role_ids, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order, :max_open_tickets)
   `, payload);
 }
 
@@ -276,12 +279,14 @@ async function getTicketsByGuild(guildId) {
   return query('SELECT * FROM tickets WHERE guild_id = :guildId ORDER BY created_at DESC', { guildId });
 }
 
-async function getOpenTicketByUser(guildId, userId) {
-  const rows = await query(
-    "SELECT * FROM tickets WHERE guild_id = :guildId AND user_id = :userId AND status = 'open' LIMIT 1",
-    { guildId, userId },
+// Per-category open-ticket limit (categories.max_open_tickets) — see
+// component.js's createTicketChannel, which blocks a new ticket once this
+// returns as many rows as the category's configured limit.
+async function getOpenTicketsByUserAndCategory(guildId, userId, category) {
+  return query(
+    "SELECT * FROM tickets WHERE guild_id = :guildId AND user_id = :userId AND category = :category AND status = 'open'",
+    { guildId, userId, category },
   );
-  return rows[0];
 }
 
 async function updateTicketChannel(channelId, ticketId) {
@@ -366,7 +371,7 @@ module.exports = {
   getTicketById,
   getTicketByChannel,
   getTicketsByGuild,
-  getOpenTicketByUser,
+  getOpenTicketsByUserAndCategory,
   updateTicketChannel,
   updateTicketCategory,
   closeTicket,

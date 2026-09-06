@@ -127,6 +127,10 @@ function renderCategoryCards() {
             <i class="bi bi-list-check me-1"></i>
             ${c.questions?.length ? `${c.questions.length} eigene Frage(n)` : 'Standard-Formular (Betreff, Beschreibung)'}
           </p>
+          <p class="text-muted small mb-0 mt-1">
+            <i class="bi bi-person-fill-lock me-1"></i>
+            ${c.max_open_tickets != null ? `Max. ${c.max_open_tickets} offene(s) Ticket(s)/Nutzer` : 'Unbegrenzt offene Tickets/Nutzer'}
+          </p>
         </div>
       </div>
     </div>`).join('');
@@ -184,6 +188,7 @@ function fillCategoryForm(c) {
   document.getElementById('catEditNameInput').value    = c?.name || '';
   document.getElementById('catEditEmoji').value        = c?.emoji || '';
   document.getElementById('catEditDescription').value  = c?.description || '';
+  document.getElementById('catEditMaxOpenTickets').value = c ? (c.max_open_tickets ?? '') : '1';
   document.getElementById('catEditWelcome').value      = c?.welcome_message || '';
   document.getElementById('catEditAutoMsg').value      = c?.auto_message || '';
   document.getElementById('catEditAutoChannel').checked = c ? !!c.auto_message_channel : true;
@@ -227,6 +232,7 @@ async function saveCategoryEdit() {
   const payload = {
     emoji:                 document.getElementById('catEditEmoji').value.trim(),
     description:           document.getElementById('catEditDescription').value.trim(),
+    max_open_tickets:      document.getElementById('catEditMaxOpenTickets').value.trim(),
     ping_role_ids:         collectPingRoleIds(),
     welcome_message:       document.getElementById('catEditWelcome').value.trim(),
     auto_message:          document.getElementById('catEditAutoMsg').value.trim(),

@@ -26,6 +26,12 @@ function resolvePingTarget(interaction) {
   return { pingType: null, pingTargetId: null, pingRoleIds: null, pingGiven: false };
 }
 
+// null/0 both mean "unbegrenzt" — 0 is the natural "no limit" value to type
+// in a Discord integer option (which can't easily submit an empty string).
+function maxOpenTicketsLabel(c) {
+  return c.max_open_tickets != null ? String(c.max_open_tickets) : 'Unbegrenzt';
+}
+
 function categoryEmbed(title, c) {
   return new EmbedBuilder()
     .setTitle(title)
@@ -33,6 +39,7 @@ function categoryEmbed(title, c) {
     .addFields(
       { name: 'Name',                    value: `${c.emoji} ${c.name}`,               inline: true },
       { name: 'Ping-Ziel',                value: pingMention(c),                       inline: true },
+      { name: 'Max. offene Tickets/Nutzer', value: maxOpenTicketsLabel(c),             inline: true },
       { name: 'Fragen',                   value: questions.describeQuestions(c.questions), inline: false },
       { name: 'Beschreibung',             value: c.description || '_keine_',           inline: false },
       { name: 'Willkommensnachricht',     value: c.welcome_message || '_keine_',       inline: false },
@@ -53,6 +60,7 @@ module.exports = {
       .addStringOption(opt => opt.setName('beschreibung').setDescription('Kurzbeschreibung, wird im Panel angezeigt').setRequired(false).setMaxLength(200))
       .addRoleOption(opt => opt.setName('ping_rolle').setDescription('Rolle, die bei neuen Tickets dieser Kategorie gepingt wird').setRequired(false))
       .addUserOption(opt => opt.setName('ping_user').setDescription('Alternativ: einzelne Person statt einer Rolle pingen').setRequired(false))
+      .addIntegerOption(opt => opt.setName('max_offene_tickets').setDescription('Max. gleichzeitig offene Tickets pro Nutzer in dieser Kategorie (0 = unbegrenzt, Standard: 1)').setRequired(false).setMinValue(0))
       .addStringOption(opt => opt.setName('willkommensnachricht').setDescription('Nachricht im Ticket-Embed beim Öffnen (leer = automatisch generiert)').setRequired(false).setMaxLength(2000))
       .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Automatische Zusatznachricht bei Ticket-Erstellung (leer = automatisch generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Ticket-Kanal senden (Standard: ja)').setRequired(false))
@@ -66,6 +74,7 @@ module.exports = {
       .addStringOption(opt => opt.setName('beschreibung').setDescription('Neue Beschreibung').setRequired(false).setMaxLength(200))
       .addRoleOption(opt => opt.setName('ping_rolle').setDescription('Neue Ping-Rolle').setRequired(false))
       .addUserOption(opt => opt.setName('ping_user').setDescription('Neue Ping-Person (überschreibt Ping-Rolle)').setRequired(false))
+      .addIntegerOption(opt => opt.setName('max_offene_tickets').setDescription('Neues Max. gleichzeitig offener Tickets pro Nutzer (0 = unbegrenzt)').setRequired(false).setMinValue(0))
       .addStringOption(opt => opt.setName('willkommensnachricht').setDescription('Neue Willkommensnachricht (leer = automatisch neu generiert)').setRequired(false).setMaxLength(2000))
       .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Neue automatische Nachricht (leer = automatisch neu generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Kanal senden?').setRequired(false))
@@ -107,6 +116,7 @@ module.exports = {
       const autoImKanal    = autoImKanalOpt === null ? true : autoImKanalOpt;
       const { count }      = await db.getCategoryCount(guildId);
       const parsedQuestions = questions.parseDelimitedQuestions(interaction.options.getString('fragen'));
+      const maxOpenTicketsOpt = interaction.options.getInteger('max_offene_tickets');
 
       await db.insertCategory({
         guild_id:              guildId,
@@ -116,6 +126,7 @@ module.exports = {
         ping_type:             ping.pingType,
         ping_target_id:        ping.pingTargetId,
         ping_role_ids:         ping.pingRoleIds,
+        max_open_tickets:      maxOpenTicketsOpt === null ? undefined : (maxOpenTicketsOpt === 0 ? null : maxOpenTicketsOpt),
         welcome_message:       interaction.options.getString('willkommensnachricht') || null,
         auto_message:          interaction.options.getString('auto_nachricht') || null,
         auto_message_channel:  autoImKanal ? 1 : 0,
@@ -147,11 +158,13 @@ module.exports = {
       const autoImKanalOpt   = interaction.options.getBoolean('auto_im_kanal');
       const autoAlsDmOpt     = interaction.options.getBoolean('auto_als_dm');
       const fragenRaw        = interaction.options.getString('fragen');
+      const maxOpenTicketsOpt = interaction.options.getInteger('max_offene_tickets');
 
       const updates = {};
       if (emoji !== null)          updates.emoji = emoji;
       if (beschreibung !== null)   updates.description = beschreibung;
       if (ping.pingGiven)          { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; updates.ping_role_ids = ping.pingRoleIds; }
+      if (maxOpenTicketsOpt !== null) updates.max_open_tickets = maxOpenTicketsOpt === 0 ? null : maxOpenTicketsOpt;
       if (willkommen !== null)     updates.welcome_message = willkommen;
       if (autoNachricht !== null)  updates.auto_message = autoNachricht;
       if (autoImKanalOpt !== null) updates.auto_message_channel = autoImKanalOpt ? 1 : 0;
@@ -206,7 +219,7 @@ module.exports = {
           : 'Nein';
         embed.addFields({
           name:  `${c.emoji} ${c.name}`,
-          value: `${c.description || '_keine Beschreibung_'}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto}\nFragen: ${questions.describeQuestions(c.questions)}`,
+          value: `${c.description || '_keine Beschreibung_'}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto} · Max. offene Tickets/Nutzer: ${maxOpenTicketsLabel(c)}\nFragen: ${questions.describeQuestions(c.questions)}`,
         });
       });
     }

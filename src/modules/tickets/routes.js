@@ -34,6 +34,15 @@ function escHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Normalizes the web form's "Max. offene Tickets pro Nutzer" input into a
+// clean positive integer, or null (= unbegrenzt) for blank/zero/invalid —
+// same "0 or empty means unlimited" convention as the slash command.
+function sanitizeMaxOpenTickets(raw) {
+  if (raw === '' || raw === null || raw === undefined) return null;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function buildAvatarUrl(user) {
   return user.avatar
     ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
@@ -329,6 +338,7 @@ module.exports = function apiRoutes(discordClient) {
         auto_message_channel:  req.body.auto_message_channel ? 1 : 0,
         auto_message_dm:       req.body.auto_message_dm ? 1 : 0,
         questions:             sanitizedQuestions ? JSON.stringify(sanitizedQuestions) : null,
+        max_open_tickets:      sanitizeMaxOpenTickets(req.body.max_open_tickets),
         sort_order:            count,
       });
 
@@ -372,6 +382,9 @@ module.exports = function apiRoutes(discordClient) {
       if (Object.prototype.hasOwnProperty.call(req.body, 'questions')) {
         const sanitizedQuestions = questionsMod.sanitizeQuestions(req.body.questions);
         updates.questions = sanitizedQuestions ? JSON.stringify(sanitizedQuestions) : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body, 'max_open_tickets')) {
+        updates.max_open_tickets = sanitizeMaxOpenTickets(req.body.max_open_tickets);
       }
       if (Object.keys(updates).length === 0)
         return res.status(400).json({ error: 'Keine Felder angegeben' });
