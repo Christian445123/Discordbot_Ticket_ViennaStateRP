@@ -440,63 +440,68 @@ document.getElementById('searchInput').addEventListener('input', renderTicketTab
 document.getElementById('statusFilter').addEventListener('change', renderTicketTable);
 document.getElementById('categoryFilter').addEventListener('change', renderTicketTable);
 
-// ── System: deploy & restart (PM2) ───────────────────────────────────────────
-// Affects the whole bot process (every guild it serves), not just the one
-// currently selected in the panel.
-function setSystemBusy(busy) {
-  document.getElementById('deployBtn').disabled  = busy;
-  document.getElementById('restartBtn').disabled = busy;
-}
-
-function showSystemAlert(cls, text) {
-  const el = document.getElementById('systemAlert');
-  el.className   = `alert ${cls}`;
-  el.textContent = text;
-}
-
-function showSystemOutput(text) {
-  const el = document.getElementById('systemOutput');
-  el.textContent = text || '';
-  el.classList.toggle('d-none', !text);
+// ── System: deploy & restart ──────────────────────────────────────────────────
+// Same behavior as the sibling Discordbot_Follower project's webpanel: git
+// pull (fast-forward only) + conditional npm install, and a restart that
+// just kills the process for PM2's autorestart to bring back up. Affects the
+// whole bot process (every guild it serves), not just the one currently
+// selected in the panel.
+async function postSystem(action) {
+  const res  = await apiFetch(`/api/admin/system/${action}`, { method: 'POST' });
+  const data = await res.json();
+  return { ok: res.ok, data };
 }
 
 async function triggerDeploy() {
-  if (!confirm('Wirklich deployen? Holt den neuesten Stand und startet danach den Bot für ALLE Server neu.')) return;
-  setSystemBusy(true);
-  showSystemAlert('alert-info', 'Deploye… (git pull, npm install, danach Neustart)');
-  showSystemOutput('');
+  if (!confirm('Neuesten Stand aus dem Git-Repository laden (git pull)? Bei Änderungen startet der Bot danach automatisch neu.')) return;
+  const btn    = document.getElementById('deployBtn');
+  const result = document.getElementById('deployResult');
+  btn.disabled = true;
+  result.className   = 'small';
+  result.textContent = '⏳ Deploye …';
   try {
-    const res  = await apiFetch('/api/admin/system/deploy', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      showSystemAlert('alert-success', '✓ Deploy erfolgreich — Bot startet neu…');
-      showSystemOutput(data.stdout);
+    const { ok, data } = await postSystem('deploy');
+    if (ok) {
+      result.className = data.npmInstallError ? 'small text-danger' : 'small text-success';
+      let text = data.output || '(keine Ausgabe)';
+      if (data.npmInstallRan)   text += '\n\nnpm install erfolgreich ausgeführt.';
+      if (data.npmInstallError) text += `\n\nnpm install fehlgeschlagen:\n${data.npmInstallError}\n\nBot wurde NICHT neugestartet.`;
+      if (data.restarting)      text += '\n\nBot startet neu, Seite lädt in Kürze neu …';
+      result.textContent = text;
+      if (data.restarting) { setTimeout(() => location.reload(), 8000); return; }
     } else {
-      showSystemAlert('alert-danger', data.error || 'Deploy fehlgeschlagen');
-      showSystemOutput([data.stdout, data.stderr].filter(Boolean).join('\n\n'));
+      result.className   = 'small text-danger';
+      result.textContent = `❌ ${data.error || 'Unbekannter Fehler'}`;
     }
   } catch {
-    showSystemAlert('alert-danger', 'Netzwerkfehler');
-  } finally {
-    setSystemBusy(false);
+    result.className   = 'small text-danger';
+    result.textContent = '❌ Netzwerkfehler';
   }
+  btn.disabled = false;
 }
 
 async function triggerRestart() {
-  if (!confirm('Bot jetzt neustarten? Er ist danach für ALLE Server kurz nicht erreichbar.')) return;
-  setSystemBusy(true);
-  showSystemAlert('alert-info', 'Starte neu…');
-  showSystemOutput('');
+  if (!confirm('Bot wirklich neustarten? Er ist danach für wenige Sekunden nicht erreichbar.')) return;
+  const btn    = document.getElementById('restartBtn');
+  const result = document.getElementById('restartResult');
+  btn.disabled = true;
+  result.className   = 'small';
+  result.textContent = '⏳ Neustart wird ausgelöst …';
   try {
-    const res  = await apiFetch('/api/admin/system/restart', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) showSystemAlert('alert-success', '✓ Neustart ausgelöst.');
-    else        showSystemAlert('alert-danger', data.error || 'Neustart fehlgeschlagen');
+    const { ok, data } = await postSystem('restart');
+    if (ok) {
+      result.className   = 'small text-success';
+      result.textContent = '✓ Neustart ausgelöst. Seite lädt in Kürze neu …';
+      setTimeout(() => location.reload(), 8000);
+      return;
+    }
+    result.className   = 'small text-danger';
+    result.textContent = `❌ ${data.error || 'Unbekannter Fehler'}`;
   } catch {
-    showSystemAlert('alert-danger', 'Netzwerkfehler');
-  } finally {
-    setSystemBusy(false);
+    result.className   = 'small text-danger';
+    result.textContent = '❌ Netzwerkfehler';
   }
+  btn.disabled = false;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

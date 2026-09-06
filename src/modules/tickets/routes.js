@@ -16,7 +16,7 @@
 
 const express      = require('express');
 const path         = require('path');
-const { exec }     = require('child_process');
+const { execFile } = require('child_process');
 const db           = require('./db');
 const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
@@ -24,11 +24,9 @@ const pingRolesMod = require('./pingRoles');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
-// Repo root (this file lives at src/modules/tickets/) — where git/npm/pm2
+// Repo root (this file lives at src/modules/tickets/) — where git/npm
 // commands below run, regardless of the process's actual cwd.
-const REPO_ROOT   = path.join(__dirname, '..', '..', '..');
-// Matches ecosystem.config.js's apps[0].name.
-const PM2_APP_NAME = 'ticket-bot';
+const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 
 function escHtml(str) {
   return String(str ?? '')
@@ -96,26 +94,54 @@ h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex
 </div></body></html>`;
 }
 
-// Runs a fixed shell command (no user input is ever interpolated into any
-// command string below) in the repo root and resolves instead of rejecting,
-// so callers can inspect { ok, stdout, stderr } without try/catch nesting.
-function run(cmd) {
+// Runs a fixed argv (never a shell string — no user input is ever part of
+// any command below) in the repo root and resolves instead of rejecting, so
+// callers can inspect { ok, stdout, stderr } without try/catch nesting.
+function run(file, args = []) {
   return new Promise(resolve => {
-    exec(cmd, { cwd: REPO_ROOT, timeout: 120_000 }, (err, stdout, stderr) => {
+    execFile(file, args, { cwd: REPO_ROOT, timeout: 120_000 }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: stdout?.trim() || '', stderr: (stderr?.trim() || err?.message) || '' });
     });
   });
 }
 
-// Fire-and-forget after the HTTP response for the triggering request has
-// already been sent — `pm2 restart` kills this very process, so anything
-// still in flight past that point is lost.
-function scheduleRestart() {
-  setTimeout(() => {
-    exec(`pm2 restart ${PM2_APP_NAME}`, { cwd: REPO_ROOT }, err => {
-      if (err) logger.error('PM2-Neustart fehlgeschlagen:', err.message);
-    });
-  }, 500);
+// Same trick as FollowerBot's webpanel: don't shell out to `pm2 restart` —
+// just exit this process after the triggering response has been flushed.
+// PM2's autorestart (ecosystem.config.js) brings it straight back up, with
+// no dependency on the pm2 CLI being reachable from inside the app.
+function scheduleSelfRestart() {
+  setTimeout(() => process.exit(0), 500);
+}
+
+// Fast-forward-only pull (fails cleanly instead of clobbering local server-
+// side changes, unlike a plain `git pull`), then `npm install` only if the
+// dependency manifest actually changed — mirrors FollowerBot's
+// _run_git_deploy() (there: requirements.txt via pip).
+async function runGitDeploy() {
+  const before = await run('git', ['rev-parse', 'HEAD']);
+  if (!before.ok) throw new Error(before.stderr || 'git rev-parse fehlgeschlagen');
+
+  const pull = await run('git', ['pull', '--ff-only']);
+  if (!pull.ok) throw new Error(pull.stderr || pull.stdout || 'git pull fehlgeschlagen');
+
+  const after = await run('git', ['rev-parse', 'HEAD']);
+  if (!after.ok) throw new Error(after.stderr || 'git rev-parse fehlgeschlagen');
+
+  const changed = before.stdout !== after.stdout;
+  let npmInstallRan   = false;
+  let npmInstallError = null;
+
+  if (changed) {
+    const diff = await run('git', ['diff', '--name-only', before.stdout, after.stdout]);
+    const depsChanged = diff.ok && diff.stdout.split('\n').some(l => l.trim() === 'package.json' || l.trim() === 'package-lock.json');
+    if (depsChanged) {
+      const install = await run('npm', ['install']);
+      if (install.ok) npmInstallRan = true;
+      else npmInstallError = (install.stderr || install.stdout).slice(0, 1500);
+    }
+  }
+
+  return { changed, output: pull.stdout, npmInstallRan, npmInstallError };
 }
 
 module.exports = function apiRoutes(discordClient) {
@@ -382,35 +408,44 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
-  // ── Bot deploy & restart (PM2) ───────────────────────────────────────────────
-  // Affects the whole bot process — every guild it serves, not just the one
-  // currently selected in the panel — so every call is logged both to the
-  // server log and (best-effort) to the currently selected guild's log channel.
+  // ── Bot deploy & restart ─────────────────────────────────────────────────────
+  // Same shape as the sibling Discordbot_Follower project's webpanel: a
+  // fast-forward-only git pull with a conditional npm install, and a restart
+  // that just exits the process and lets PM2's autorestart bring it back —
+  // no dependency on the pm2 CLI being reachable from inside the app. Affects
+  // the whole bot process (every guild it serves), so every call is logged
+  // both to the server log and (best-effort) to the currently selected
+  // guild's log channel, on success AND failure.
   router.post('/admin/system/deploy', async (req, res) => {
-    const who = `${req.user.username} (${req.user.id})`;
-    logger.warn(`Deploy ausgelöst von ${who}`);
+    const triggeredByTag = `${req.user.username} (Web)`;
     try {
-      const status = await run('git status --porcelain');
-      if (!status.ok) {
-        return res.status(500).json({ error: 'git status fehlgeschlagen — läuft der Bot in einem Git-Repository?', stderr: status.stderr });
-      }
-      if (status.stdout) {
-        return res.status(409).json({ error: 'Deploy abgebrochen: nicht committete Änderungen auf dem Server.', stdout: status.stdout });
-      }
-
-      const pull = await run('git pull');
-      if (!pull.ok) {
-        return res.status(500).json({ error: 'git pull fehlgeschlagen', stdout: pull.stdout, stderr: pull.stderr });
-      }
-
-      const install = await run('npm install');
-      if (!install.ok) {
-        return res.status(500).json({ error: 'npm install fehlgeschlagen', stdout: pull.stdout, stderr: install.stderr });
+      let result;
+      try {
+        result = await runGitDeploy();
+      } catch (err) {
+        logger.error('Deploy fehlgeschlagen:', err.message);
+        await ticketLog.logSystemAction(discordClient, req.guildId, {
+          title: '🚀 Deploy fehlgeschlagen', description: `\`\`\`${err.message.slice(0, 1500)}\`\`\``,
+          color: 0xED4245, triggeredByTag,
+        });
+        return res.status(500).json({ error: err.message });
       }
 
-      await ticketLog.logSystemAction(discordClient, req.guildId, { action: 'Deploy', triggeredByTag: `${req.user.username} (Web)` });
-      res.json({ success: true, stdout: [pull.stdout, install.stdout].filter(Boolean).join('\n\n') });
-      scheduleRestart();
+      logger.warn(`Deploy ausgelöst von ${triggeredByTag}. Änderungen: ${result.changed}.`);
+      const restarting = result.changed && !result.npmInstallError;
+      const outcome = !result.changed
+        ? 'Bereits aktuell'
+        : result.npmInstallError
+          ? 'Änderungen geladen, npm install fehlgeschlagen — KEIN Neustart'
+          : 'Neue Änderungen geladen, Bot startet neu …';
+      const color = result.npmInstallError ? 0xED4245 : (result.changed ? 0xFEE75C : 0x5865F2);
+      await ticketLog.logSystemAction(discordClient, req.guildId, {
+        title: '🚀 Deploy (git pull) ausgeführt', description: `**Ergebnis:** ${outcome}\n\`\`\`${result.output.slice(0, 1500)}\`\`\``,
+        color, triggeredByTag,
+      });
+
+      res.json({ success: true, ...result, restarting });
+      if (restarting) scheduleSelfRestart();
     } catch (err) {
       logger.error('Deploy fehlgeschlagen:', err.message);
       res.status(500).json({ error: `Deploy fehlgeschlagen: ${err.message}` });
@@ -418,12 +453,14 @@ module.exports = function apiRoutes(discordClient) {
   });
 
   router.post('/admin/system/restart', async (req, res) => {
-    const who = `${req.user.username} (${req.user.id})`;
-    logger.warn(`Neustart ausgelöst von ${who}`);
+    const triggeredByTag = `${req.user.username} (Web)`;
     try {
-      await ticketLog.logSystemAction(discordClient, req.guildId, { action: 'Neustart', triggeredByTag: `${req.user.username} (Web)` });
+      logger.warn(`Neustart ausgelöst von ${triggeredByTag}.`);
+      await ticketLog.logSystemAction(discordClient, req.guildId, {
+        title: '♻️ Bot-Neustart angefordert', description: '', color: 0xFEE75C, triggeredByTag,
+      });
       res.json({ success: true });
-      scheduleRestart();
+      scheduleSelfRestart();
     } catch (err) {
       logger.error('Neustart fehlgeschlagen:', err.message);
       res.status(500).json({ error: `Neustart fehlgeschlagen: ${err.message}` });

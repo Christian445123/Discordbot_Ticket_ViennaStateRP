@@ -112,19 +112,20 @@ async function logCategoryConfigChanged(discordClient, guildId, { action, name, 
     .catch(err => logger.error('Log-Kanal (Kategorie-Konfiguration) fehlgeschlagen:', err.message));
 }
 
-// Bot-wide actions (deploy/restart) triggered from the web panel. Posted to
-// whichever guild's log channel the admin had selected when triggering it —
-// best-effort visibility, not an audit trail (see the server-side logger.warn
-// call at the call site for that).
-async function logSystemAction(discordClient, guildId, { action, triggeredByTag }) {
+// Bot-wide actions (deploy/restart) triggered from the web panel — same
+// shape as the sibling Discordbot_Follower project's webpanel _notify().
+// Posted to whichever guild's log channel the admin had selected when
+// triggering it — best-effort visibility, not an audit trail (see the
+// server-side logger.warn call at the call site for that).
+async function logSystemAction(discordClient, guildId, { title, description, color, triggeredByTag }) {
   const logCh = await getLogChannel(discordClient, guildId);
   if (!logCh) return;
 
   const embed = new EmbedBuilder()
-    .setTitle('⚙️ Bot-Systemaktion')
-    .setColor(0xED4245)
-    .setDescription(`**${action}** wurde über das Web-Panel ausgelöst.`)
-    .setFooter({ text: `Von ${triggeredByTag}` })
+    .setTitle(title)
+    .setColor(color)
+    .setDescription(description || null)
+    .addFields({ name: 'Von', value: `${triggeredByTag}` })
     .setTimestamp();
 
   await logCh.send({ embeds: [embed] })
