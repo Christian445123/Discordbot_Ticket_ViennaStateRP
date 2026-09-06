@@ -336,7 +336,7 @@ async function component(interaction) {
       });
 
       await ticketLog.logTicketClaimed(interaction.client, interaction.guild.id, {
-        ticket, claimedByTag: interaction.user.tag, auto: false, source: '🎮 Discord',
+        ticket, claimedByTag: interaction.user.tag, source: '🎮 Discord',
       });
       return;
     }

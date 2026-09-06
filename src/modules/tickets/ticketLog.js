@@ -108,15 +108,15 @@ async function logNoteAdded(discordClient, guildId, { ticket, authorTag, content
   await dispatch(discordClient, guildId, TICKET_WEBHOOK, { embeds: [embed] });
 }
 
-async function logTicketClaimed(discordClient, guildId, { ticket, claimedByTag, auto, source }) {
+async function logTicketClaimed(discordClient, guildId, { ticket, claimedByTag, source }) {
   const embed = new EmbedBuilder()
     .setTitle('🖐️ Ticket übernommen')
     .setColor(0xFEE75C)
     .addFields(
-      { name: 'Server',          value: guildName(discordClient, guildId),                          inline: true },
-      { name: 'Ticket-Nr.',      value: formatTicketRef(ticket),                                     inline: true },
-      { name: 'Übernommen von',  value: claimedByTag,                                                inline: true },
-      { name: 'Ausgelöst durch', value: auto ? 'Automatisch (erste Antwort)' : (source || '🎮 Discord'), inline: true },
+      { name: 'Server',         value: guildName(discordClient, guildId), inline: true },
+      { name: 'Ticket-Nr.',     value: formatTicketRef(ticket),           inline: true },
+      { name: 'Übernommen von', value: claimedByTag,                      inline: true },
+      { name: 'Quelle',         value: source || '🎮 Discord',            inline: true },
     )
     .setTimestamp();
 

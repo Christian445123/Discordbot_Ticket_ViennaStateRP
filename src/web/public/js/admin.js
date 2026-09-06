@@ -298,7 +298,7 @@ let allTickets = [];
 
 // "In Bearbeitung" isn't a stored status — it's status='open' with
 // claimed_by_id set (see db.js/routes.js's POST /tickets/:id/claim, and the
-// Discord-side Claim button / auto-claim-on-reply).
+// Discord-side "Übernehmen" button).
 function ticketDisplayStatus(t) {
   if (t.status === 'closed') return 'closed';
   return t.claimed_by_id ? 'in_progress' : 'open';

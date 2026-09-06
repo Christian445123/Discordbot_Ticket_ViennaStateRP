@@ -310,25 +310,17 @@ async function closeTicket(data) {
 }
 
 // "In Bearbeitung" is not a stored status value — it's derived as
-// status = 'open' AND claimed_by_id IS NOT NULL (see ticketStatus.js), so
-// none of the existing status = 'open' queries (limits, workload, stats)
-// need to change just because a ticket gets claimed.
+// status = 'open' AND claimed_by_id IS NOT NULL (see ticketDisplayStatus()
+// in admin.js/admin-ticket.js/routes.js), so none of the existing
+// status = 'open' queries (limits, workload, stats) need to change just
+// because a ticket gets claimed. Only ever set explicitly — via the
+// "Übernehmen" button (component.js) or the web panel's claim route
+// (routes.js) — never automatically just because staff replied.
 async function claimTicket(ticketId, { claimedById, claimedByName }) {
   await query(
     'UPDATE tickets SET claimed_by_id = :claimedById, claimed_by_name = :claimedByName WHERE id = :ticketId',
     { ticketId, claimedById, claimedByName },
   );
-}
-
-// Used by the "first staff reply auto-claims" trigger (see messageCreate.js)
-// — only claims if nobody already has, so it never steals an explicit claim.
-// Returns whether it actually claimed anything.
-async function claimTicketIfUnclaimed(ticketId, { claimedById, claimedByName }) {
-  const result = await query(
-    'UPDATE tickets SET claimed_by_id = :claimedById, claimed_by_name = :claimedByName WHERE id = :ticketId AND claimed_by_id IS NULL',
-    { ticketId, claimedById, claimedByName },
-  );
-  return result.affectedRows > 0;
 }
 
 async function getStats(guildId) {
@@ -402,7 +394,6 @@ module.exports = {
   updateTicketCategory,
   closeTicket,
   claimTicket,
-  claimTicketIfUnclaimed,
   getStats,
   getAvgResolutionMinutes,
   addMessage,

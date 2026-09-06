@@ -247,7 +247,7 @@ module.exports = function apiRoutes(discordClient) {
 
   // "In Bearbeitung" from the web panel — see db.js: not a stored status,
   // just status='open' with claimed_by_id set, same as the Discord-side
-  // Claim button/auto-claim-on-reply (component.js / events/messageCreate.js).
+  // "Übernehmen" button (component.js).
   router.post('/tickets/:id/claim', async (req, res) => {
     try {
       const ticketId = parseInt(req.params.id, 10);
@@ -259,7 +259,7 @@ module.exports = function apiRoutes(discordClient) {
       await db.claimTicket(ticketId, { claimedById: req.user.id, claimedByName: req.user.username });
 
       await ticketLog.logTicketClaimed(discordClient, req.guildId, {
-        ticket, claimedByTag: `${req.user.username} (Web)`, auto: false, source: '🖥️ Web',
+        ticket, claimedByTag: `${req.user.username} (Web)`, source: '🖥️ Web',
       });
 
       res.json({ success: true });
