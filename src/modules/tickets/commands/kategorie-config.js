@@ -1,10 +1,11 @@
 'use strict';
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const db        = require('../db');
-const ticketLog = require('../ticketLog');
-const questions = require('../questions');
-const pingRoles = require('../pingRoles');
+const db           = require('../db');
+const ticketLog    = require('../ticketLog');
+const questions    = require('../questions');
+const pingRoles    = require('../pingRoles');
+const panelBuilder = require('../panelBuilder');
 
 function pingMention(c) {
   if (c.ping_type === 'role') {
@@ -140,6 +141,7 @@ module.exports = {
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'hinzugefügt', name, changedByTag: interaction.user.tag,
       });
+      await panelBuilder.refreshPanel(interaction.client, guildId);
       return;
     }
 
@@ -185,6 +187,7 @@ module.exports = {
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'bearbeitet', name, changedByTag: interaction.user.tag,
       });
+      await panelBuilder.refreshPanel(interaction.client, guildId);
       return;
     }
 
@@ -203,6 +206,7 @@ module.exports = {
       await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
         action: 'entfernt', name, changedByTag: interaction.user.tag,
       });
+      await panelBuilder.refreshPanel(interaction.client, guildId);
       return;
     }
 

@@ -23,6 +23,7 @@ const db           = require('./db');
 const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
 const pingRolesMod = require('./pingRoles');
+const panelBuilder = require('./panelBuilder');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
@@ -382,6 +383,7 @@ module.exports = function apiRoutes(discordClient) {
       await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
         action: 'hinzugefügt', name, changedByTag: `${req.user.username} (Web)`,
       });
+      await panelBuilder.refreshPanel(discordClient, guildId);
       res.json({ success: true });
     } catch (err) {
       logger.error('Admin category create error:', err.message);
@@ -430,6 +432,7 @@ module.exports = function apiRoutes(discordClient) {
       await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
         action: 'bearbeitet', name, changedByTag: `${req.user.username} (Web)`,
       });
+      await panelBuilder.refreshPanel(discordClient, guildId);
       res.json({ success: true });
     } catch (err) {
       logger.error('Admin category update error:', err.message);
@@ -451,6 +454,7 @@ module.exports = function apiRoutes(discordClient) {
       await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
         action: 'entfernt', name, changedByTag: `${req.user.username} (Web)`,
       });
+      await panelBuilder.refreshPanel(discordClient, guildId);
       res.json({ success: true });
     } catch (err) {
       logger.error('Admin category delete error:', err.message);
