@@ -67,12 +67,18 @@ async function initSchema(p) {
       closed_at      DATETIME NULL,
       closed_by_id   VARCHAR(32),
       closed_by_name VARCHAR(150),
-      claimed_by_id   VARCHAR(32),
-      claimed_by_name VARCHAR(150)
+      claimed_by_id      VARCHAR(32),
+      claimed_by_name    VARCHAR(150),
+      welcome_message_id VARCHAR(32),
+      on_hold_by_id      VARCHAR(32),
+      on_hold_by_name    VARCHAR(150)
     ) ENGINE=InnoDB
   `);
   await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_by_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_by_name VARCHAR(150) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS welcome_message_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS on_hold_by_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS on_hold_by_name VARCHAR(150) DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS ticket_messages (
@@ -297,6 +303,15 @@ async function updateTicketChannel(channelId, ticketId) {
   await query('UPDATE tickets SET channel_id = :channelId WHERE id = :ticketId', { channelId, ticketId });
 }
 
+// Lets a claim triggered from somewhere without direct access to the
+// message object (the web panel's claim route — see routes.js) find and
+// edit the welcome embed's "📌 Status" field (see ticketEmbed.js). The
+// Discord-side "Übernehmen" button doesn't need this: it already has the
+// message via the button's own interaction.
+async function updateTicketWelcomeMessage(ticketId, messageId) {
+  await query('UPDATE tickets SET welcome_message_id = :messageId WHERE id = :ticketId', { ticketId, messageId });
+}
+
 async function updateTicketCategory(category, ticketId) {
   await query('UPDATE tickets SET category = :category WHERE id = :ticketId', { category, ticketId });
 }
@@ -320,6 +335,26 @@ async function claimTicket(ticketId, { claimedById, claimedByName }) {
   await query(
     'UPDATE tickets SET claimed_by_id = :claimedById, claimed_by_name = :claimedByName WHERE id = :ticketId',
     { ticketId, claimedById, claimedByName },
+  );
+}
+
+// "Warte auf Rückmeldung" ("waiting for a reply") is likewise not a stored
+// status — it's status='open' AND on_hold_by_id set (see ticketDisplayStatus()
+// in admin.js/admin-ticket.js/routes.js), orthogonal to claimed_by_id: a
+// ticket can be claimed AND on hold at once. Only ever toggled explicitly —
+// via the "Warte auf Rückmeldung" button (component.js) or the web panel's
+// hold route (routes.js).
+async function setTicketOnHold(ticketId, { onHoldById, onHoldByName }) {
+  await query(
+    'UPDATE tickets SET on_hold_by_id = :onHoldById, on_hold_by_name = :onHoldByName WHERE id = :ticketId',
+    { ticketId, onHoldById, onHoldByName },
+  );
+}
+
+async function clearTicketOnHold(ticketId) {
+  await query(
+    'UPDATE tickets SET on_hold_by_id = NULL, on_hold_by_name = NULL WHERE id = :ticketId',
+    { ticketId },
   );
 }
 
@@ -391,9 +426,12 @@ module.exports = {
   getTicketsByGuild,
   getOpenTicketsByUserAndCategory,
   updateTicketChannel,
+  updateTicketWelcomeMessage,
   updateTicketCategory,
   closeTicket,
   claimTicket,
+  setTicketOnHold,
+  clearTicketOnHold,
   getStats,
   getAvgResolutionMinutes,
   addMessage,

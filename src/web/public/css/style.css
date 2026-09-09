@@ -147,6 +147,7 @@ a:focus-visible {
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge-open     { background-color: rgba(87,242,135,.15); color: var(--success); }
 .badge-progress { background-color: rgba(254,231,92,.15); color: var(--warning); }
+.badge-hold     { background-color: rgba(230,126,34,.15); color: #e67e22; }
 .badge-closed   { background-color: rgba(150,152,157,.15); color: var(--muted); }
 .badge-cat    { background-color: rgba(88,101,242,.15);  color: var(--accent); }
 

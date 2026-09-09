@@ -39,17 +39,22 @@ async function loadUser() {
   `;
 }
 
-// "In Bearbeitung" isn't a stored status — it's status='open' with
-// claimed_by_id set (see db.js/routes.js's POST /tickets/:id/claim).
+// "In Bearbeitung" and "Warte auf Rückmeldung" aren't stored statuses —
+// they're status='open' with claimed_by_id / on_hold_by_id set (see
+// db.js/routes.js's POST /tickets/:id/claim and /tickets/:id/hold). The two
+// are independent (a ticket can be both claimed and on hold), so on-hold
+// takes display priority over in-progress.
 function ticketDisplayStatus(ticket) {
   if (ticket.status === 'closed') return 'closed';
+  if (ticket.on_hold_by_id) return 'on_hold';
   return ticket.claimed_by_id ? 'in_progress' : 'open';
 }
 
 const STATUS_META = {
-  open:        { cls: 'badge-open',     label: 'Offen',          icon: 'bi-circle-fill' },
-  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung', icon: 'bi-person-fill-gear' },
-  closed:      { cls: 'badge-closed',   label: 'Geschlossen',    icon: 'bi-lock-fill' },
+  open:        { cls: 'badge-open',     label: 'Offen',               icon: 'bi-circle-fill' },
+  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung',      icon: 'bi-person-fill-gear' },
+  on_hold:     { cls: 'badge-hold',     label: 'Warte auf Rückmeldung', icon: 'bi-pause-circle-fill' },
+  closed:      { cls: 'badge-closed',   label: 'Geschlossen',         icon: 'bi-lock-fill' },
 };
 
 function renderHeader(ticket) {
@@ -65,6 +70,7 @@ function renderHeader(ticket) {
     <span class="meta-pill"><i class="bi bi-clock-fill"></i>${formatDate(ticket.created_at)}</span>
     ${ticket.closed_at ? `<span class="meta-pill"><i class="bi bi-lock-fill"></i>Geschlossen: ${formatDate(ticket.closed_at)}</span>` : ''}
     ${ticket.claimed_by_name ? `<span class="meta-pill"><i class="bi bi-hand-index-thumb-fill"></i>Übernommen von ${escapeHtml(ticket.claimed_by_name)}</span>` : ''}
+    ${ticket.on_hold_by_name ? `<span class="meta-pill"><i class="bi bi-pause-circle-fill"></i>Wartet seit Markierung von ${escapeHtml(ticket.on_hold_by_name)}</span>` : ''}
     <span class="ticket-badge ${sCls} ms-1">
       <i class="bi ${sIcon} me-1" style="font-size:.6rem"></i>${sLabel}
     </span>
@@ -75,13 +81,25 @@ function renderHeader(ticket) {
   tBtn.classList.remove('d-none');
 
   const claimBtn = document.getElementById('claimBtn');
+  const holdBtn  = document.getElementById('holdBtn');
   if (ticket.status === 'closed') {
     claimBtn.classList.add('d-none');
+    holdBtn.classList.add('d-none');
+    return;
+  }
+
+  claimBtn.classList.remove('d-none');
+  claimBtn.innerHTML = ticket.claimed_by_name
+    ? `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen (aktuell: ${escapeHtml(ticket.claimed_by_name)})`
+    : `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen`;
+
+  holdBtn.classList.remove('d-none');
+  if (ticket.on_hold_by_name) {
+    holdBtn.className = 'btn btn-warning btn-sm';
+    holdBtn.innerHTML  = `<i class="bi bi-play-circle-fill me-1"></i>Warten beenden`;
   } else {
-    claimBtn.classList.remove('d-none');
-    claimBtn.innerHTML = ticket.claimed_by_name
-      ? `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen (aktuell: ${escapeHtml(ticket.claimed_by_name)})`
-      : `<i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen`;
+    holdBtn.className = 'btn btn-outline-warning btn-sm';
+    holdBtn.innerHTML  = `<i class="bi bi-pause-circle-fill me-1"></i>Warte auf Rückmeldung`;
   }
 }
 
@@ -101,6 +119,24 @@ async function claimTicket() {
     alert('Netzwerkfehler');
   }
   claimBtn.disabled = false;
+}
+
+async function toggleHold() {
+  const holdBtn = document.getElementById('holdBtn');
+  holdBtn.disabled = true;
+  try {
+    const res = await apiFetch(`/api/tickets/${ticketId}/hold`, { method: 'POST' });
+    if (res.ok) {
+      const refreshed = await apiFetch(`/api/tickets/${ticketId}`).then(r => r.json());
+      renderHeader(refreshed.ticket);
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Fehler beim Ändern des Warte-Status');
+    }
+  } catch {
+    alert('Netzwerkfehler');
+  }
+  holdBtn.disabled = false;
 }
 
 function renderMessages(messages) {

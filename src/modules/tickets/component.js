@@ -17,6 +17,7 @@ const categoryNotify = require('./categoryNotify');
 const questions      = require('./questions');
 const pingRoles      = require('./pingRoles');
 const { isTicketStaff } = require('./staffCheck');
+const ticketEmbed = require('./ticketEmbed');
 
 // Discord channel names only allow lowercase letters/digits/hyphens (it
 // silently strips/mangles anything else), so a category name like "Bewerbung"
@@ -35,6 +36,36 @@ function slugifyCategoryName(name) {
 
 function formatTicketNumber(ticketNumber) {
   return String(ticketNumber).padStart(3, '0');
+}
+
+// Shared by ticket creation (always starts un-held) and the "Warte auf
+// Rückmeldung" toggle handler, which rebuilds this row with the flipped
+// label/style instead of just editing the embed, so the button itself
+// reflects the current state too.
+function buildTicketButtonsRow(onHold) {
+  const closeBtn = new ButtonBuilder()
+    .setCustomId('close_ticket')
+    .setLabel('Ticket schließen')
+    .setStyle(ButtonStyle.Danger)
+    .setEmoji('🔒');
+
+  const claimBtn = new ButtonBuilder()
+    .setCustomId('claim_ticket')
+    .setLabel('Übernehmen')
+    .setStyle(ButtonStyle.Success)
+    .setEmoji('🖐️');
+
+  const askCloseBtn = new ButtonBuilder()
+    .setCustomId('ask_close_ticket')
+    .setLabel('Nachfragen')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('❓');
+
+  const holdBtn = onHold
+    ? new ButtonBuilder().setCustomId('toggle_hold_ticket').setLabel('Warten beenden').setStyle(ButtonStyle.Primary).setEmoji('▶️')
+    : new ButtonBuilder().setCustomId('toggle_hold_ticket').setLabel('Warte auf Rückmeldung').setStyle(ButtonStyle.Secondary).setEmoji('⏸️');
+
+  return new ActionRowBuilder().addComponents(closeBtn, claimBtn, askCloseBtn, holdBtn);
 }
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
@@ -173,32 +204,15 @@ async function createTicketChannel(interaction, category, subject) {
     .setFooter({ text: `Ticket #${formatTicketNumber(ticketNumber)} · Support-System` })
     .setTimestamp();
 
-  const closeBtn = new ButtonBuilder()
-    .setCustomId('close_ticket')
-    .setLabel('Ticket schließen')
-    .setStyle(ButtonStyle.Danger)
-    .setEmoji('🔒');
-
-  const claimBtn = new ButtonBuilder()
-    .setCustomId('claim_ticket')
-    .setLabel('Übernehmen')
-    .setStyle(ButtonStyle.Success)
-    .setEmoji('🖐️');
-
-  const askCloseBtn = new ButtonBuilder()
-    .setCustomId('ask_close_ticket')
-    .setLabel('Nachfragen')
-    .setStyle(ButtonStyle.Secondary)
-    .setEmoji('❓');
-
-  const row = new ActionRowBuilder().addComponents(closeBtn, claimBtn, askCloseBtn);
+  const row = buildTicketButtonsRow(false);
 
   const pingMention = categoryNotify.buildPingMention(categoryCfg);
-  await channel.send({
+  const welcomeMsg = await channel.send({
     content: `${user}${pingMention ? ` ${pingMention}` : ''}`,
     embeds: [embed],
     components: [row],
   });
+  await db.updateTicketWelcomeMessage(ticketId, welcomeMsg.id);
 
   await categoryNotify.applyCategoryExtras(interaction.client, guild.id, {
     categoryName: category, channel, userId: user.id,
@@ -331,6 +345,13 @@ async function component(interaction) {
 
       await db.claimTicket(ticket.id, { claimedById: interaction.user.id, claimedByName: interaction.user.tag });
 
+      // The Claim button lives on the welcome message itself, so no lookup
+      // is needed here (contrast routes.js's claim route, which has to fetch
+      // it by tickets.welcome_message_id instead).
+      await ticketEmbed.refreshWelcomeEmbedStatus(interaction.message, {
+        ...ticket, claimed_by_id: interaction.user.id, claimed_by_name: interaction.user.tag,
+      });
+
       await interaction.reply({
         content: `🖐️ ${interaction.user} hat dieses Ticket übernommen. Status: **In Bearbeitung**`,
       });
@@ -376,6 +397,54 @@ async function component(interaction) {
         content: `<@${ticket.user_id}>`,
         embeds: [embed],
         components: [new ActionRowBuilder().addComponents(yes, no)],
+      });
+      return;
+    }
+
+    // ── Button: toggle "Warte auf Rückmeldung" (on hold) ─────────────────────
+    // Orthogonal to claimed_by_id — a ticket can be claimed AND on hold at
+    // once (see db.js) — toggled purely explicitly, same as Claim. Rebuilds
+    // the whole button row (not just the embed) so the button's own label
+    // flips between "Warte auf Rückmeldung" and "Warten beenden".
+    if (interaction.isButton() && interaction.customId === 'toggle_hold_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.reply({ content: '❌ Nur Staff kann den Warte-Status ändern.', ephemeral: true });
+      }
+
+      const turningOn = !ticket.on_hold_by_id;
+      if (turningOn) {
+        await db.setTicketOnHold(ticket.id, { onHoldById: interaction.user.id, onHoldByName: interaction.user.tag });
+      } else {
+        await db.clearTicketOnHold(ticket.id);
+      }
+
+      const updatedTicket = turningOn
+        ? { ...ticket, on_hold_by_id: interaction.user.id, on_hold_by_name: interaction.user.tag }
+        : { ...ticket, on_hold_by_id: null, on_hold_by_name: null };
+
+      try {
+        const [oldEmbed] = interaction.message.embeds;
+        if (oldEmbed) {
+          const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
+          await interaction.message.edit({ embeds: [embed], components: [buildTicketButtonsRow(turningOn)] });
+        }
+      } catch (err) { /* best-effort — the DB change above already stuck */ }
+
+      await interaction.reply({
+        content: turningOn
+          ? `⏸️ ${interaction.user} hat auf **Warte auf Rückmeldung** gesetzt.`
+          : `▶️ ${interaction.user} hat den Warte-Status aufgehoben.`,
+      });
+
+      await ticketLog.logTicketHoldChanged(interaction.client, interaction.guild.id, {
+        ticket, changedByTag: interaction.user.tag, onHold: turningOn, source: '🎮 Discord',
       });
       return;
     }

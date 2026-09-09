@@ -39,6 +39,9 @@
             <button id="claimBtn" class="btn btn-success btn-sm d-none" onclick="claimTicket()">
               <i class="bi bi-hand-index-thumb-fill me-1"></i>Übernehmen
             </button>
+            <button id="holdBtn" class="btn btn-outline-warning btn-sm d-none" onclick="toggleHold()">
+              <i class="bi bi-pause-circle-fill me-1"></i>Warte auf Rückmeldung
+            </button>
             <a id="transcriptBtn" href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm d-none">
               <i class="bi bi-file-earmark-text me-1"></i>Transkript
             </a>
@@ -49,7 +52,7 @@
 
     <p class="text-muted small mb-3">
       <i class="bi bi-eye me-1"></i>Antworten, Schließen und Kategorie ändern erfolgt über Discord
-      (im Ticket-Kanal bzw. per <code>/kategorie</code>). Übernehmen geht auch von hier aus.
+      (im Ticket-Kanal bzw. per <code>/kategorie</code>). Übernehmen und Warte auf Rückmeldung gehen auch von hier aus.
     </p>
 
     <!-- Tab navigation -->

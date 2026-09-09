@@ -296,18 +296,22 @@ async function deleteCategoryConfirm() {
 // ── Tickets: read-only overview ─────────────────────────────────────────────
 let allTickets = [];
 
-// "In Bearbeitung" isn't a stored status — it's status='open' with
-// claimed_by_id set (see db.js/routes.js's POST /tickets/:id/claim, and the
-// Discord-side "Übernehmen" button).
+// "In Bearbeitung" and "Warte auf Rückmeldung" aren't stored statuses —
+// they're status='open' with claimed_by_id / on_hold_by_id set (see
+// db.js/routes.js's POST /tickets/:id/claim and /tickets/:id/hold, and the
+// Discord-side buttons). The two are independent (a ticket can be both
+// claimed and on hold), so on-hold takes display priority over in-progress.
 function ticketDisplayStatus(t) {
   if (t.status === 'closed') return 'closed';
+  if (t.on_hold_by_id) return 'on_hold';
   return t.claimed_by_id ? 'in_progress' : 'open';
 }
 
 const STATUS_META = {
-  open:        { cls: 'badge-open',     label: 'Offen',          icon: 'bi-circle-fill' },
-  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung', icon: 'bi-person-fill-gear' },
-  closed:      { cls: 'badge-closed',   label: 'Geschlossen',    icon: 'bi-lock-fill' },
+  open:        { cls: 'badge-open',     label: 'Offen',               icon: 'bi-circle-fill' },
+  in_progress: { cls: 'badge-progress', label: 'In Bearbeitung',      icon: 'bi-person-fill-gear' },
+  on_hold:     { cls: 'badge-hold',     label: 'Warte auf Rückmeldung', icon: 'bi-pause-circle-fill' },
+  closed:      { cls: 'badge-closed',   label: 'Geschlossen',         icon: 'bi-lock-fill' },
 };
 
 function statusBadge(t) {

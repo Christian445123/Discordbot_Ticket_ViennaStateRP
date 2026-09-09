@@ -6,10 +6,11 @@
 // Discord Administrator on this guild" without re-checking it itself. Covers
 // two things: category + automatic-message management, and a mostly
 // read-only ticket overview (no chat, no close, no category change from the
-// web — that stays a Discord-side ticket flow, see component.js; the one
-// exception is claiming a ticket — POST /tickets/:id/claim — since every
-// caller here is already a guild admin). The ticket panel (where it's
-// posted) stays Discord-only too — see /setup and /panel.
+// web — that stays a Discord-side ticket flow, see component.js; the
+// exceptions are claiming a ticket and toggling "Warte auf Rückmeldung" —
+// POST /tickets/:id/claim and /tickets/:id/hold — since every caller here is
+// already a guild admin). The ticket panel (where it's posted) stays
+// Discord-only too — see /setup and /panel.
 //
 // Every handler is wrapped in try/catch and always sends a response: Express
 // does not catch rejected promises in async route handlers itself, so an
@@ -24,6 +25,7 @@ const ticketLog    = require('./ticketLog');
 const questionsMod = require('./questions');
 const pingRolesMod = require('./pingRoles');
 const panelBuilder = require('./panelBuilder');
+const ticketEmbed  = require('./ticketEmbed');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
@@ -52,14 +54,32 @@ function buildAvatarUrl(user) {
     : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
 }
 
-// "In Bearbeitung" isn't a stored status — it's status='open' with
-// claimed_by_id set (see db.js/POST /tickets/:id/claim).
+// Web-triggered claim/hold changes have no interaction to pull the welcome
+// message from (contrast the Discord-side buttons in component.js), so they
+// look it up by the stored channel_id/welcome_message_id instead. Missing
+// channel/message (deleted, or predates this feature) is a silent no-op —
+// the DB change itself already stuck.
+async function fetchWelcomeMessage(discordClient, guildId, ticket) {
+  if (!ticket.channel_id || !ticket.welcome_message_id) return null;
+  const guild   = discordClient.guilds.cache.get(guildId);
+  const channel = guild?.channels.cache.get(ticket.channel_id);
+  return (await channel?.messages.fetch(ticket.welcome_message_id).catch(() => null)) ?? null;
+}
+
+// "In Bearbeitung" and "Warte auf Rückmeldung" aren't stored statuses —
+// they're status='open' with claimed_by_id / on_hold_by_id set (see
+// db.js/POST /tickets/:id/claim and /tickets/:id/hold). The two are
+// independent (a ticket can be both claimed and on hold), so on-hold takes
+// display priority over in-progress.
 function ticketDisplayStatus(ticket) {
   if (ticket.status === 'closed') return 'closed';
+  if (ticket.on_hold_by_id) return 'on_hold';
   return ticket.claimed_by_id ? 'in_progress' : 'open';
 }
 
-const TICKET_STATUS_LABELS = { open: 'Offen', in_progress: 'In Bearbeitung', closed: 'Geschlossen' };
+const TICKET_STATUS_LABELS = {
+  open: 'Offen', in_progress: 'In Bearbeitung', on_hold: 'Warte auf Rückmeldung', closed: 'Geschlossen',
+};
 
 function generateTranscript(ticket, messages) {
   const ticketNum = String(ticket.ticket_number).padStart(3, '0');
@@ -89,7 +109,7 @@ function generateTranscript(ticket, messages) {
 .wrap{max-width:860px;margin:0 auto}.header{background:#2b2d31;border-radius:12px;padding:20px 24px;margin-bottom:24px;border-left:4px solid #5865f2}
 h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;color:#96989d}
 .badge{display:inline-block;padding:.2em .6em;border-radius:4px;font-size:.75rem;font-weight:600}
-.open{background:rgba(87,242,135,.15);color:#57f287}.in_progress{background:rgba(254,231,92,.15);color:#fee75c}.closed{background:rgba(150,152,157,.15);color:#96989d}
+.open{background:rgba(87,242,135,.15);color:#57f287}.in_progress{background:rgba(254,231,92,.15);color:#fee75c}.on_hold{background:rgba(230,126,34,.15);color:#e67e22}.closed{background:rgba(150,152,157,.15);color:#96989d}
 .msgs{display:flex;flex-direction:column;gap:10px}.msg{background:#2b2d31;border-radius:10px;padding:12px 16px}
 .msg-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .av{width:32px;height:32px;border-radius:50%;flex-shrink:0;object-fit:cover}
@@ -109,6 +129,7 @@ h1{margin:0 0 12px;font-size:1.25rem;color:#fff}.meta{display:flex;gap:14px;flex
     ${ticket.closed_at ? `<span>🔒 Geschlossen: ${new Date(ticket.closed_at).toLocaleString('de-AT')}</span>` : ''}
     ${ticket.closed_by_name ? `<span>von ${escHtml(ticket.closed_by_name)}</span>` : ''}
     ${ticket.claimed_by_name ? `<span>🖐️ Übernommen von ${escHtml(ticket.claimed_by_name)}</span>` : ''}
+    ${ticket.on_hold_by_name ? `<span>⏸️ Wartet seit Markierung von ${escHtml(ticket.on_hold_by_name)}</span>` : ''}
     <span class="badge ${displayStatus}">${TICKET_STATUS_LABELS[displayStatus]}</span>
   </div>
 </div>
@@ -259,6 +280,16 @@ module.exports = function apiRoutes(discordClient) {
 
       await db.claimTicket(ticketId, { claimedById: req.user.id, claimedByName: req.user.username });
 
+      // Unlike the Discord-side "Übernehmen" button (which already has the
+      // welcome message via its own interaction), this has to look it up by
+      // the stored tickets.welcome_message_id.
+      const welcomeMsg = await fetchWelcomeMessage(discordClient, req.guildId, ticket);
+      if (welcomeMsg) {
+        await ticketEmbed.refreshWelcomeEmbedStatus(welcomeMsg, {
+          ...ticket, claimed_by_id: req.user.id, claimed_by_name: `${req.user.username} (Web)`,
+        });
+      }
+
       await ticketLog.logTicketClaimed(discordClient, req.guildId, {
         ticket, claimedByTag: `${req.user.username} (Web)`, source: '🖥️ Web',
       });
@@ -267,6 +298,44 @@ module.exports = function apiRoutes(discordClient) {
     } catch (err) {
       logger.error('Ticket übernehmen fehlgeschlagen:', err.message);
       res.status(500).json({ error: 'Ticket konnte nicht übernommen werden' });
+    }
+  });
+
+  // "Warte auf Rückmeldung" from the web panel — toggles the same
+  // on_hold_by_id/name pair the Discord-side button does (component.js),
+  // independent of claimed_by_id (a ticket can be both claimed and on hold).
+  router.post('/tickets/:id/hold', async (req, res) => {
+    try {
+      const ticketId = parseInt(req.params.id, 10);
+      if (isNaN(ticketId)) return res.status(400).json({ error: 'Ungültige ID' });
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.guild_id !== req.guildId) return res.status(404).json({ error: 'Ticket nicht gefunden' });
+      if (ticket.status === 'closed') return res.status(400).json({ error: 'Ticket ist bereits geschlossen' });
+
+      const turningOn = !ticket.on_hold_by_id;
+      const webTag = `${req.user.username} (Web)`;
+      if (turningOn) {
+        await db.setTicketOnHold(ticketId, { onHoldById: req.user.id, onHoldByName: webTag });
+      } else {
+        await db.clearTicketOnHold(ticketId);
+      }
+
+      const welcomeMsg = await fetchWelcomeMessage(discordClient, req.guildId, ticket);
+      if (welcomeMsg) {
+        const updatedTicket = turningOn
+          ? { ...ticket, on_hold_by_id: req.user.id, on_hold_by_name: webTag }
+          : { ...ticket, on_hold_by_id: null, on_hold_by_name: null };
+        await ticketEmbed.refreshWelcomeEmbedStatus(welcomeMsg, updatedTicket);
+      }
+
+      await ticketLog.logTicketHoldChanged(discordClient, req.guildId, {
+        ticket, changedByTag: webTag, onHold: turningOn, source: '🖥️ Web',
+      });
+
+      res.json({ success: true, onHold: turningOn });
+    } catch (err) {
+      logger.error('Warte-Status ändern fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Warte-Status konnte nicht geändert werden' });
     }
   });
 
