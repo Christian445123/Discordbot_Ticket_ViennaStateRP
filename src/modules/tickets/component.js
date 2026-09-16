@@ -255,6 +255,17 @@ async function component(interaction) {
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_category') {
       const category    = interaction.values[0];
       const categoryCfg = await db.getCategoryByName(interaction.guild.id, category);
+
+      // Locked categories are already excluded from the panel's dropdown
+      // (see panelBuilder.js), but a stale/cached panel could still submit
+      // one — re-check here so a locked category can never be opened.
+      if (categoryCfg?.locked) {
+        return interaction.reply({
+          content: `🔒 Die Kategorie **${category}** ist derzeit gesperrt. Es können keine neuen Tickets erstellt werden.`,
+          ephemeral: true,
+        });
+      }
+
       const qs           = questions.resolveQuestions(categoryCfg);
 
       const modal = new ModalBuilder()

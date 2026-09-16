@@ -56,10 +56,12 @@ async function buildPanelPayload(guild) {
     const openCount = openCountByCategory.get(c.name) || 0;
     const percent   = totalOpen ? Math.round((openCount / totalOpen) * 100) : 0;
     const loadLine  = `${loadIndicator(openCount, totalOpen)} Auslastung: ${openCount} offen${totalOpen ? ` · ${percent}%` : ''}`;
+    const lines     = [c.description, c.locked ? '🔒 Gesperrt — aktuell keine neuen Tickets möglich' : null, loadLine]
+      .filter(Boolean);
 
     embed.addFields({
-      name:  `${c.emoji} ${c.name}`,
-      value: c.description ? `${c.description}\n${loadLine}` : loadLine,
+      name:  `${c.locked ? '🔒 ' : ''}${c.emoji} ${c.name}`,
+      value: lines.join('\n'),
     });
   });
 
@@ -68,10 +70,20 @@ async function buildPanelPayload(guild) {
     value: `Ø Bearbeitungsdauer: ${formatMinutes(avgResolutionMinutes)}`,
   });
 
+  // Locked categories (e.g. a closed Bewerbungsphase) are shown above for
+  // transparency but dropped from the dropdown entirely, since Discord
+  // select menus can't disable individual options — component.js re-checks
+  // categoryCfg.locked too, in case a stale/cached panel still submits one.
+  const openCategories = categories.filter(c => !c.locked);
   const select = new StringSelectMenuBuilder()
     .setCustomId('ticket_category')
-    .setPlaceholder('Kategorie auswählen…')
-    .addOptions(categories.map(c => ({ label: c.name, value: c.name, emoji: c.emoji || undefined })));
+    .setPlaceholder(openCategories.length ? 'Kategorie auswählen…' : 'Aktuell keine Kategorie verfügbar')
+    .setDisabled(openCategories.length === 0)
+    .addOptions(
+      openCategories.length
+        ? openCategories.map(c => ({ label: c.name, value: c.name, emoji: c.emoji || undefined }))
+        : [{ label: 'Keine Kategorie verfügbar', value: '_none_' }],
+    );
 
   return { embeds: [embed], components: [new ActionRowBuilder().addComponents(select)] };
 }

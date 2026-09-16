@@ -447,6 +447,7 @@ module.exports = function apiRoutes(discordClient) {
         questions:             sanitizedQuestions ? JSON.stringify(sanitizedQuestions) : null,
         max_open_tickets:      sanitizeMaxOpenTickets(req.body.max_open_tickets),
         sort_order:            count,
+        locked:                req.body.locked ? 1 : 0,
       });
 
       await ticketLog.logCategoryConfigChanged(discordClient, guildId, {
@@ -467,7 +468,7 @@ module.exports = function apiRoutes(discordClient) {
       const existing = await db.getCategoryByName(guildId, name);
       if (!existing) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
 
-      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji'];
+      const allowed = ['welcome_message', 'auto_message', 'auto_message_channel', 'auto_message_dm', 'description', 'emoji', 'locked'];
       const updates = {};
       for (const key of allowed) {
         if (Object.prototype.hasOwnProperty.call(req.body, key)) {

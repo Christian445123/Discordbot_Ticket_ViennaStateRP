@@ -33,12 +33,17 @@ function maxOpenTicketsLabel(c) {
   return c.max_open_tickets != null ? String(c.max_open_tickets) : 'Unbegrenzt';
 }
 
+function statusLabel(c) {
+  return c.locked ? '🔒 Gesperrt (keine neuen Tickets)' : '🟢 Aktiv';
+}
+
 function categoryEmbed(title, c) {
   return new EmbedBuilder()
     .setTitle(title)
-    .setColor(0x57F287)
+    .setColor(c.locked ? 0xED4245 : 0x57F287)
     .addFields(
       { name: 'Name',                    value: `${c.emoji} ${c.name}`,               inline: true },
+      { name: 'Status',                  value: statusLabel(c),                       inline: true },
       { name: 'Ping-Ziel',                value: pingMention(c),                       inline: true },
       { name: 'Max. offene Tickets/Nutzer', value: maxOpenTicketsLabel(c),             inline: true },
       { name: 'Fragen',                   value: questions.describeQuestions(c.questions), inline: false },
@@ -66,7 +71,8 @@ module.exports = {
       .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Automatische Zusatznachricht bei Ticket-Erstellung (leer = automatisch generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Ticket-Kanal senden (Standard: ja)').setRequired(false))
       .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht zusätzlich per DM senden (Standard: nein)').setRequired(false))
-      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen fürs Ticket-Formular, getrennt mit ";" (max. 5, ersetzt Betreff/Beschreibung)').setRequired(false).setMaxLength(500)))
+      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen fürs Ticket-Formular, getrennt mit ";" (max. 5, ersetzt Betreff/Beschreibung)').setRequired(false).setMaxLength(500))
+      .addBooleanOption(opt => opt.setName('gesperrt').setDescription('Kategorie direkt gesperrt anlegen (keine neuen Tickets möglich, Standard: nein)').setRequired(false)))
     .addSubcommand(sub => sub
       .setName('bearbeiten')
       .setDescription('Bearbeitet eine bestehende Kategorie')
@@ -80,11 +86,20 @@ module.exports = {
       .addStringOption(opt => opt.setName('auto_nachricht').setDescription('Neue automatische Nachricht (leer = automatisch neu generiert)').setRequired(false).setMaxLength(1000))
       .addBooleanOption(opt => opt.setName('auto_im_kanal').setDescription('Automatische Nachricht im Kanal senden?').setRequired(false))
       .addBooleanOption(opt => opt.setName('auto_als_dm').setDescription('Automatische Nachricht per DM senden?').setRequired(false))
-      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen, getrennt mit ";" (max. 5) — "-" setzt auf Standard-Formular zurück').setRequired(false).setMaxLength(500)))
+      .addStringOption(opt => opt.setName('fragen').setDescription('Eigene Fragen, getrennt mit ";" (max. 5) — "-" setzt auf Standard-Formular zurück').setRequired(false).setMaxLength(500))
+      .addBooleanOption(opt => opt.setName('gesperrt').setDescription('Kategorie sperren/entsperren (gesperrt = keine neuen Tickets möglich)').setRequired(false)))
     .addSubcommand(sub => sub
       .setName('entfernen')
       .setDescription('Entfernt eine Kategorie')
       .addStringOption(opt => opt.setName('name').setDescription('Zu entfernende Kategorie').setRequired(true).setAutocomplete(true)))
+    .addSubcommand(sub => sub
+      .setName('sperren')
+      .setDescription('Sperrt eine Kategorie – es können keine neuen Tickets mehr erstellt werden')
+      .addStringOption(opt => opt.setName('name').setDescription('Zu sperrende Kategorie').setRequired(true).setAutocomplete(true)))
+    .addSubcommand(sub => sub
+      .setName('entsperren')
+      .setDescription('Entsperrt eine Kategorie – neue Tickets sind wieder möglich')
+      .addStringOption(opt => opt.setName('name').setDescription('Zu entsperrende Kategorie').setRequired(true).setAutocomplete(true)))
     .addSubcommand(sub => sub
       .setName('liste')
       .setDescription('Zeigt alle konfigurierten Kategorien')),
@@ -134,6 +149,7 @@ module.exports = {
         auto_message_dm:       interaction.options.getBoolean('auto_als_dm') ? 1 : 0,
         questions:             parsedQuestions ? JSON.stringify(parsedQuestions) : null,
         sort_order:            count,
+        locked:                interaction.options.getBoolean('gesperrt') ? 1 : 0,
       });
 
       const created = await db.getCategoryByName(guildId, name);
@@ -161,12 +177,14 @@ module.exports = {
       const autoAlsDmOpt     = interaction.options.getBoolean('auto_als_dm');
       const fragenRaw        = interaction.options.getString('fragen');
       const maxOpenTicketsOpt = interaction.options.getInteger('max_offene_tickets');
+      const gesperrtOpt      = interaction.options.getBoolean('gesperrt');
 
       const updates = {};
       if (emoji !== null)          updates.emoji = emoji;
       if (beschreibung !== null)   updates.description = beschreibung;
       if (ping.pingGiven)          { updates.ping_type = ping.pingType; updates.ping_target_id = ping.pingTargetId; updates.ping_role_ids = ping.pingRoleIds; }
       if (maxOpenTicketsOpt !== null) updates.max_open_tickets = maxOpenTicketsOpt === 0 ? null : maxOpenTicketsOpt;
+      if (gesperrtOpt !== null)    updates.locked = gesperrtOpt ? 1 : 0;
       if (willkommen !== null)     updates.welcome_message = willkommen;
       if (autoNachricht !== null)  updates.auto_message = autoNachricht;
       if (autoImKanalOpt !== null) updates.auto_message_channel = autoImKanalOpt ? 1 : 0;
@@ -210,6 +228,29 @@ module.exports = {
       return;
     }
 
+    if (sub === 'sperren' || sub === 'entsperren') {
+      const name     = interaction.options.getString('name', true);
+      const existing = await db.getCategoryByName(guildId, name);
+      if (!existing) return interaction.reply({ content: `❌ Kategorie **${name}** nicht gefunden.`, ephemeral: true });
+
+      const locking = sub === 'sperren';
+      if (!!existing.locked === locking) {
+        return interaction.reply({
+          content: locking ? `ℹ️ Kategorie **${name}** ist bereits gesperrt.` : `ℹ️ Kategorie **${name}** ist bereits entsperrt.`,
+          ephemeral: true,
+        });
+      }
+
+      await db.updateCategory(guildId, name, { locked: locking ? 1 : 0 });
+      const updated = await db.getCategoryByName(guildId, name);
+      await interaction.reply({ embeds: [categoryEmbed(locking ? '🔒 Kategorie gesperrt' : '🟢 Kategorie entsperrt', updated)] });
+      await ticketLog.logCategoryConfigChanged(interaction.client, guildId, {
+        action: locking ? 'gesperrt' : 'entsperrt', name, changedByTag: interaction.user.tag,
+      });
+      await panelBuilder.refreshPanel(interaction.client, guildId);
+      return;
+    }
+
     // sub === 'liste'
     const categories = await db.getCategories(guildId);
     const embed = new EmbedBuilder().setTitle('🏷️ Konfigurierte Kategorien').setColor(0x5865F2);
@@ -222,8 +263,8 @@ module.exports = {
           ? `Ja (${[c.auto_message_channel ? 'Kanal' : null, c.auto_message_dm ? 'DM' : null].filter(Boolean).join(' + ') || '—'})`
           : 'Nein';
         embed.addFields({
-          name:  `${c.emoji} ${c.name}`,
-          value: `${c.description || '_keine Beschreibung_'}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto} · Max. offene Tickets/Nutzer: ${maxOpenTicketsLabel(c)}\nFragen: ${questions.describeQuestions(c.questions)}`,
+          name:  `${c.locked ? '🔒 ' : ''}${c.emoji} ${c.name}`,
+          value: `${c.description || '_keine Beschreibung_'}\nStatus: ${statusLabel(c)}\nPing: ${pingMention(c)} · Auto-Nachricht: ${auto} · Max. offene Tickets/Nutzer: ${maxOpenTicketsLabel(c)}\nFragen: ${questions.describeQuestions(c.questions)}`,
         });
       });
     }

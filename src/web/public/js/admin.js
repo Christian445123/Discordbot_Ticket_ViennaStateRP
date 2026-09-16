@@ -110,7 +110,10 @@ function renderCategoryCards() {
               <i class="bi bi-pencil-fill"></i>
             </button>
           </div>
-          <div class="mb-2">${loadBadge(c.open_count || 0, totalOpen)}</div>
+          <div class="mb-2">
+            ${loadBadge(c.open_count || 0, totalOpen)}
+            ${c.locked ? '<span class="ticket-badge badge-load-red ms-1">🔒 Gesperrt</span>' : ''}
+          </div>
           <p class="text-muted small mb-1">
             <i class="bi bi-card-text me-1"></i>
             ${c.description ? escapeHtml(c.description) : '<span class="fst-italic">Keine Beschreibung</span>'}
@@ -189,6 +192,7 @@ function fillCategoryForm(c) {
   document.getElementById('catEditEmoji').value        = c?.emoji || '';
   document.getElementById('catEditDescription').value  = c?.description || '';
   document.getElementById('catEditMaxOpenTickets').value = c ? (c.max_open_tickets ?? '') : '1';
+  document.getElementById('catEditLocked').checked     = c ? !!c.locked : false;
   document.getElementById('catEditWelcome').value      = c?.welcome_message || '';
   document.getElementById('catEditAutoMsg').value      = c?.auto_message || '';
   document.getElementById('catEditAutoChannel').checked = c ? !!c.auto_message_channel : true;
@@ -233,6 +237,7 @@ async function saveCategoryEdit() {
     emoji:                 document.getElementById('catEditEmoji').value.trim(),
     description:           document.getElementById('catEditDescription').value.trim(),
     max_open_tickets:      document.getElementById('catEditMaxOpenTickets').value.trim(),
+    locked:                document.getElementById('catEditLocked').checked ? 1 : 0,
     ping_role_ids:         collectPingRoleIds(),
     welcome_message:       document.getElementById('catEditWelcome').value.trim(),
     auto_message:          document.getElementById('catEditAutoMsg').value.trim(),

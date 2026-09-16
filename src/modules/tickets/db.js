@@ -42,6 +42,7 @@ async function initSchema(p) {
       sort_order            INT DEFAULT 0,
       ticket_count          INT DEFAULT 0,
       max_open_tickets      INT DEFAULT 1,
+      locked                TINYINT(1) DEFAULT 0,
       UNIQUE KEY uniq_guild_category (guild_id, name)
     ) ENGINE=InnoDB
   `);
@@ -51,6 +52,7 @@ async function initSchema(p) {
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ping_role_ids TEXT DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS ticket_count INT DEFAULT 0`).catch(() => {});
   await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS max_open_tickets INT DEFAULT 1`).catch(() => {});
+  await p.query(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS locked TINYINT(1) DEFAULT 0`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS tickets (
@@ -174,12 +176,13 @@ async function insertCategory(data) {
     questions:             data.questions ?? null,
     sort_order:            data.sort_order ?? 0,
     max_open_tickets:      data.max_open_tickets === undefined ? 1 : data.max_open_tickets,
+    locked:                data.locked ? 1 : 0,
   };
   await query(`
     INSERT INTO categories
-      (guild_id, name, emoji, description, ping_type, ping_target_id, ping_role_ids, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order, max_open_tickets)
+      (guild_id, name, emoji, description, ping_type, ping_target_id, ping_role_ids, welcome_message, auto_message, auto_message_channel, auto_message_dm, questions, sort_order, max_open_tickets, locked)
     VALUES
-      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :ping_role_ids, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order, :max_open_tickets)
+      (:guild_id, :name, :emoji, :description, :ping_type, :ping_target_id, :ping_role_ids, :welcome_message, :auto_message, :auto_message_channel, :auto_message_dm, :questions, :sort_order, :max_open_tickets, :locked)
   `, payload);
 }
 
