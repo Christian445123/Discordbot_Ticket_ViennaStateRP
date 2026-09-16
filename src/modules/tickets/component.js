@@ -245,8 +245,53 @@ async function createTicketChannel(interaction, category, subject) {
 // Slash-command dispatch and autocomplete are handled centrally by
 // src/core/interactionRouter.js — this only ever sees buttons/selects/
 // modals, and only reacts to the "ticket_"/"close_"/"cancel_close"/
-// "confirm_close_"/"claim_ticket"/"ask_close_ticket" customIds it owns.
+// "confirm_close_"/"claim_ticket"/"ask_close_ticket"/"manage_categories"/
+// "manage_categories_toggle" customIds it owns.
 async function component(interaction) {
+
+    // ── Button: manage categories (lock/unlock) from the panel ──────────────
+    // Visible to everyone on the panel (Discord buttons can't be hidden
+    // per-role), gated here instead — categoryCfg is null since this isn't
+    // about one category's ping-role staff, just guild-wide staff/admins.
+    if (interaction.isButton() && interaction.customId === 'manage_categories') {
+      const guildCfg = await db.getGuild(interaction.guild.id);
+      if (!isTicketStaff(interaction.member, guildCfg, null)) {
+        return interaction.reply({ content: '❌ Nur Staff kann Kategorien sperren/entsperren.', ephemeral: true });
+      }
+      const payload = await panelBuilder.buildManageCategoriesPayload(interaction.guild);
+      await interaction.reply({ ...payload, ephemeral: true });
+      return;
+    }
+
+    // ── Select: toggle a category's locked status ────────────────────────────
+    // Lives on the ephemeral message from the button above, so re-checking
+    // staff here is defense-in-depth rather than a real requirement (only the
+    // invoking user can ever see/use an ephemeral message).
+    if (interaction.isStringSelectMenu() && interaction.customId === 'manage_categories_toggle') {
+      const guildCfg = await db.getGuild(interaction.guild.id);
+      if (!isTicketStaff(interaction.member, guildCfg, null)) {
+        return interaction.reply({ content: '❌ Nur Staff kann Kategorien sperren/entsperren.', ephemeral: true });
+      }
+
+      const name     = interaction.values[0];
+      const existing = await db.getCategoryByName(interaction.guild.id, name);
+      if (!existing) return interaction.reply({ content: `❌ Kategorie **${name}** nicht gefunden.`, ephemeral: true });
+
+      const locking = !existing.locked;
+      await db.updateCategory(interaction.guild.id, name, { locked: locking ? 1 : 0 });
+
+      await ticketLog.logCategoryConfigChanged(interaction.client, interaction.guild.id, {
+        action: locking ? 'gesperrt' : 'entsperrt', name, changedByTag: interaction.user.tag,
+      });
+      await panelBuilder.refreshPanel(interaction.client, interaction.guild.id);
+
+      const payload = await panelBuilder.buildManageCategoriesPayload(interaction.guild);
+      await interaction.update({
+        content:    `${locking ? '🔒' : '🟢'} Kategorie **${name}** wurde ${locking ? 'gesperrt' : 'entsperrt'}.\n\n${payload.content}`,
+        components: payload.components,
+      });
+      return;
+    }
 
     // ── Category select menu (from panel) ───────────────────────────────────
     // Each category can define up to 5 of its own questions (see

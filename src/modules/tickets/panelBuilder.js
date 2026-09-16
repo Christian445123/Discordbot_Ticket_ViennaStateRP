@@ -3,7 +3,7 @@
 // Builds the ticket-creation panel embed + category dropdown from a guild's
 // configured categories, shared by /setup and /panel so both stay in sync.
 
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db     = require('./db');
 const logger = require('../../utils/logger');
 
@@ -85,7 +85,47 @@ async function buildPanelPayload(guild) {
         : [{ label: 'Keine Kategorie verfügbar', value: '_none_' }],
     );
 
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(select)] };
+  // Visible to every member (Discord buttons can't be hidden per-role), but
+  // component.js gates the click itself on isTicketStaff — everyone sees it,
+  // only staff/admins can actually use it.
+  const manageButton = new ButtonBuilder()
+    .setCustomId('manage_categories')
+    .setLabel('Kategorien verwalten')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('⚙️');
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(select),
+      new ActionRowBuilder().addComponents(manageButton),
+    ],
+  };
+}
+
+// Builds the ephemeral lock/unlock picker shown after a staff member clicks
+// "⚙️ Kategorien verwalten" on the panel (see component.js) — selecting a
+// category there toggles its locked state and re-renders this same row in
+// place, so staff can flip several categories without re-opening the menu.
+function buildManageCategoriesRow(categories) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('manage_categories_toggle')
+    .setPlaceholder('Kategorie zum Sperren/Entsperren auswählen…')
+    .addOptions(categories.map(c => ({
+      label:       `${c.locked ? '🔒 Gesperrt' : '🟢 Aktiv'} — ${c.name}`,
+      value:       c.name,
+      emoji:       c.emoji || undefined,
+      description: c.locked ? 'Auswählen zum Entsperren' : 'Auswählen zum Sperren',
+    })));
+  return new ActionRowBuilder().addComponents(select);
+}
+
+async function buildManageCategoriesPayload(guild) {
+  const categories = await db.getCategories(guild.id);
+  return {
+    content:    '⚙️ **Kategorien verwalten**\nWähle eine Kategorie aus, um sie zu sperren oder zu entsperren.',
+    components: [buildManageCategoriesRow(categories)],
+  };
 }
 
 // Re-renders the already-posted panel (see /panel senden / /setup) after a
@@ -116,4 +156,4 @@ async function refreshPanel(discordClient, guildId) {
   }
 }
 
-module.exports = { buildPanelPayload, refreshPanel };
+module.exports = { buildPanelPayload, buildManageCategoriesPayload, refreshPanel };
