@@ -18,6 +18,7 @@ const questions      = require('./questions');
 const pingRoles      = require('./pingRoles');
 const { isTicketStaff } = require('./staffCheck');
 const ticketEmbed = require('./ticketEmbed');
+const panelBuilder = require('./panelBuilder');
 
 // Discord channel names only allow lowercase letters/digits/hyphens (it
 // silently strips/mangles anything else), so a category name like "Bewerbung"
@@ -94,6 +95,10 @@ async function closeTicket(interaction, ticket) {
     closedByTag: closedBy.tag,
     source: '🎮 Discord',
   });
+
+  // The panel's Auslastung numbers are based on open-ticket counts, so they
+  // go stale the moment a ticket closes if we don't refresh here too.
+  await panelBuilder.refreshPanel(interaction.client, guild.id);
 
   // Lock channel, then delete after 5 seconds
   try {
@@ -225,6 +230,10 @@ async function createTicketChannel(interaction, category, subject) {
     category,
     source: '🎮 Discord',
   });
+
+  // The panel's Auslastung numbers are based on open-ticket counts, so they
+  // go stale the moment a new ticket opens if we don't refresh here too.
+  await panelBuilder.refreshPanel(interaction.client, guild.id);
 
   await interaction.reply({
     content: `✅ Dein Ticket wurde erstellt: ${channel}`,
