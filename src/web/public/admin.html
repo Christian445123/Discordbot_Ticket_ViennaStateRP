@@ -48,6 +48,9 @@
         <button class="tab-btn" onclick="switchTab('system')" id="tab-system">
           <i class="bi bi-hdd-stack-fill me-1"></i>Bot-Verwaltung
         </button>
+        <button class="tab-btn" onclick="switchTab('voice')" id="tab-voice">
+          <i class="bi bi-mic-fill me-1"></i>Voice-Support
+        </button>
       </div>
 
       <!-- ── Categories tab ─────────────────────────────────────────────────── -->
@@ -159,6 +162,72 @@
             <i class="bi bi-arrow-clockwise me-2"></i>Bot neustarten
           </button>
           <div id="restartResult" class="small" style="white-space:pre-wrap;font-family:ui-monospace,monospace;min-height:1em;"></div>
+        </div>
+      </div>
+
+      <!-- ── Voice-Support tab ──────────────────────────────────────────────── -->
+      <div id="pane-voice" class="d-none">
+        <p class="text-muted small mb-4">
+          Tritt ein Nutzer innerhalb der Supportzeiten dem Warteraum bei, joint der Bot demselben Kanal, spielt
+          Wartemusik ab und benachrichtigt das Team. Außerhalb der Supportzeiten (oder manuell geschlossen) wird
+          der Kanal nur umbenannt — der Bot bleibt inaktiv.
+        </p>
+
+        <div class="card bg-dark-card border-0 shadow-sm mb-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h6 class="fw-semibold mb-0"><i class="bi bi-mic-fill text-primary me-2"></i>Warteraum &amp; Benachrichtigung</h6>
+              <span class="ticket-badge" id="voiceStatusBadge">–</span>
+            </div>
+            <div id="voiceConfigAlert" class="alert d-none mb-3"></div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-4">
+                <label class="form-label text-muted small">Warteraum (Voice-Kanal)</label>
+                <select id="voiceWaitingChannel" class="form-select">
+                  <option value="">Kein Warteraum ausgewählt</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label text-muted small">Benachrichtigungskanal (Text)</label>
+                <select id="voiceNotifyChannel" class="form-select">
+                  <option value="">Kein Kanal ausgewählt</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label text-muted small">Team-Rolle <span class="text-muted">(optional, wird gepingt)</span></label>
+                <select id="voiceTeamRole" class="form-select">
+                  <option value="">Keine</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="voiceManualClosed" />
+              <label class="form-check-label" for="voiceManualClosed">
+                Warteraum manuell geschlossen halten
+                <span class="text-muted small">(überschreibt die Supportzeiten, bis wieder deaktiviert)</span>
+              </label>
+            </div>
+
+            <button class="btn btn-primary btn-sm" onclick="saveVoiceSupportConfig()">
+              <i class="bi bi-check-lg me-1"></i>Speichern
+            </button>
+          </div>
+        </div>
+
+        <div class="card bg-dark-card border-0 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h6 class="fw-semibold mb-0"><i class="bi bi-clock-fill text-primary me-2"></i>Supportzeiten</h6>
+              <span class="text-muted small" id="voiceTimezoneLabel">Europe/Vienna</span>
+            </div>
+            <div id="voiceHoursAlert" class="alert d-none mb-3"></div>
+            <div id="voiceHoursRows"></div>
+            <button class="btn btn-primary btn-sm mt-2" onclick="saveVoiceSupportHours()">
+              <i class="bi bi-check-lg me-1"></i>Supportzeiten speichern
+            </button>
+          </div>
         </div>
       </div>
 

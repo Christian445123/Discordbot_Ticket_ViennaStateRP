@@ -1,9 +1,10 @@
 'use strict';
 
 const { Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const db      = require('../db');
-const session = require('../session');
-const logger  = require('../../../utils/logger');
+const db        = require('../db');
+const session   = require('../session');
+const scheduler = require('../scheduler');
+const logger    = require('../../../utils/logger');
 
 // Administrator always counts as staff (same convention as the ticket
 // module's isTicketStaff), on top of whatever team_rolle was configured.
@@ -73,6 +74,12 @@ async function execute(oldState, newState) {
       // it) means this user is already being helped in person — no need
       // for hold music or a "someone is waiting" ping.
       if (staffAlreadyPresent(newState.channel, cfg.staff_role_id, member.id)) return;
+
+      // Outside support hours (or manually closed via the web panel), the
+      // channel itself already says "[geschlossen]" — no point joining with
+      // hold music or paging a team that isn't working right now.
+      const open = await scheduler.isOpen(guildId, cfg);
+      if (!open) return;
 
       session.startSession(newState.channel, member.id);
       await sendWaitNotification(newState.client, guildId, cfg, member, newState.channel);

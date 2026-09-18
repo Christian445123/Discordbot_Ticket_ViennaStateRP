@@ -1,7 +1,7 @@
 'use strict';
 
 let currentUser  = null;
-let activeTab    = 'categories'; // 'categories' | 'tickets' | 'system'
+let activeTab    = 'categories'; // 'categories' | 'tickets' | 'system' | 'voice'
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -35,12 +35,13 @@ async function loadUser() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  ['categories', 'tickets', 'system'].forEach(t => {
+  ['categories', 'tickets', 'system', 'voice'].forEach(t => {
     document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
   });
   if (tab === 'categories') loadCategorySettings();
   if (tab === 'tickets')    { loadStats(); loadTickets(); }
+  if (tab === 'voice')      loadVoiceSupportSettings();
 }
 
 // ── Categories & automatic messages ─────────────────────────────────────────
@@ -529,6 +530,149 @@ async function triggerRestart() {
     result.textContent = '❌ Netzwerkfehler';
   }
   btn.disabled = false;
+}
+
+// ── Voice-Support (Warteraum, Benachrichtigung, Supportzeiten) ──────────────
+// Weekday order shown to the admin (Mo..So), mapped to the JS Date.getDay()
+// convention (0=So..6=Sa) the backend/DB use — VOICE_WEEKDAY_ORDER[i] is the
+// weekday value stored for the i-th row on screen.
+const VOICE_WEEKDAY_ORDER  = [1, 2, 3, 4, 5, 6, 0];
+const VOICE_WEEKDAY_LABELS = { 0: 'Sonntag', 1: 'Montag', 2: 'Dienstag', 3: 'Mittwoch', 4: 'Donnerstag', 5: 'Freitag', 6: 'Samstag' };
+
+async function loadVoiceSupportChannelOptions() {
+  const [voiceRes, textRes, rolesRes] = await Promise.all([
+    apiFetch('/api/admin/voice-support/channels?type=voice'),
+    apiFetch('/api/admin/voice-support/channels?type=text'),
+    apiFetch('/api/admin/guild-roles'),
+  ]);
+  const voiceChannels = voiceRes.ok ? await voiceRes.json() : [];
+  const textChannels  = textRes.ok  ? await textRes.json()  : [];
+  const roles         = rolesRes.ok ? await rolesRes.json() : [];
+
+  document.getElementById('voiceWaitingChannel').innerHTML =
+    '<option value="">Kein Warteraum ausgewählt</option>' +
+    voiceChannels.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+
+  document.getElementById('voiceNotifyChannel').innerHTML =
+    '<option value="">Kein Kanal ausgewählt</option>' +
+    textChannels.map(c => `<option value="${c.id}">#${escapeHtml(c.name)}</option>`).join('');
+
+  document.getElementById('voiceTeamRole').innerHTML =
+    '<option value="">Keine</option>' +
+    roles.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+}
+
+function renderVoiceHoursRows(days) {
+  const byWeekday = new Map((days || []).map(d => [d.weekday, d]));
+  document.getElementById('voiceHoursRows').innerHTML = VOICE_WEEKDAY_ORDER.map(weekday => {
+    const d = byWeekday.get(weekday) || { enabled: false, start_time: '', end_time: '' };
+    return `
+      <div class="row g-2 align-items-center mb-2 voice-hour-row" data-weekday="${weekday}">
+        <div class="col-6 col-md-3">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input voice-hour-enabled" type="checkbox" id="voiceHourEnabled-${weekday}" ${d.enabled ? 'checked' : ''} />
+            <label class="form-check-label small" for="voiceHourEnabled-${weekday}">${VOICE_WEEKDAY_LABELS[weekday]}</label>
+          </div>
+        </div>
+        <div class="col-3 col-md-3">
+          <input type="time" class="form-control form-control-sm voice-hour-start" value="${escapeHtml(d.start_time || '')}" />
+        </div>
+        <div class="col-1 text-center text-muted small">bis</div>
+        <div class="col-3 col-md-3">
+          <input type="time" class="form-control form-control-sm voice-hour-end" value="${escapeHtml(d.end_time || '')}" />
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function loadVoiceSupportSettings() {
+  await loadVoiceSupportChannelOptions();
+
+  const res = await apiFetch('/api/admin/voice-support');
+  if (!res.ok) return;
+  const data = await res.json();
+
+  document.getElementById('voiceWaitingChannel').value = data.waiting_channel_id || '';
+  document.getElementById('voiceNotifyChannel').value  = data.notify_channel_id  || '';
+  document.getElementById('voiceTeamRole').value       = data.staff_role_id     || '';
+  document.getElementById('voiceManualClosed').checked = !!data.manual_closed;
+  document.getElementById('voiceTimezoneLabel').textContent = data.timezone || 'Europe/Vienna';
+
+  const badge = document.getElementById('voiceStatusBadge');
+  badge.textContent = data.open ? '🟢 Offen' : '🔴 Geschlossen';
+  badge.className   = `ticket-badge ${data.open ? 'badge-load-green' : 'badge-load-red'}`;
+
+  renderVoiceHoursRows(data.days);
+}
+
+async function saveVoiceSupportConfig() {
+  const alertEl = document.getElementById('voiceConfigAlert');
+  const payload = {
+    waiting_channel_id: document.getElementById('voiceWaitingChannel').value || null,
+    notify_channel_id:  document.getElementById('voiceNotifyChannel').value  || null,
+    staff_role_id:      document.getElementById('voiceTeamRole').value       || null,
+    manual_closed:      document.getElementById('voiceManualClosed').checked ? 1 : 0,
+  };
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/voice-support', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+      await loadVoiceSupportSettings();
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
+}
+
+function collectVoiceHours() {
+  return Array.from(document.querySelectorAll('#voiceHoursRows .voice-hour-row')).map(row => ({
+    weekday:    Number(row.dataset.weekday),
+    enabled:    row.querySelector('.voice-hour-enabled').checked,
+    start_time: row.querySelector('.voice-hour-start').value,
+    end_time:   row.querySelector('.voice-hour-end').value,
+  }));
+}
+
+async function saveVoiceSupportHours() {
+  const alertEl = document.getElementById('voiceHoursAlert');
+  const days = collectVoiceHours();
+
+  if (days.some(d => d.enabled && (!d.start_time || !d.end_time))) {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Bitte für jeden aktivierten Tag Start- und Endzeit angeben.';
+    return;
+  }
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/voice-support/hours', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+      await loadVoiceSupportSettings();
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

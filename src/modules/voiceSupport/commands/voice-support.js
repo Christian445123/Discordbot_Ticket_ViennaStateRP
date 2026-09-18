@@ -1,8 +1,10 @@
 'use strict';
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } = require('discord.js');
-const db      = require('../db');
-const session = require('../session');
+const db        = require('../db');
+const session   = require('../session');
+const scheduler = require('../scheduler');
+const hours     = require('../hours');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -48,6 +50,7 @@ module.exports = {
         notify_channel_id:  notifyChannel.id,
         staff_role_id:      teamRolle ? teamRolle.id : null,
       });
+      await scheduler.syncGuildChannelName(interaction.client, guildId);
 
       const embed = new EmbedBuilder()
         .setTitle('✅ Voice-Support eingerichtet')
@@ -66,14 +69,29 @@ module.exports = {
         return interaction.reply({ content: 'ℹ️ Voice-Support ist nicht eingerichtet. Nutze `/voice-support setup`.', ephemeral: true });
       }
 
+      const hourRows   = await db.getHours(guildId);
+      const scheduleOpen = hours.isWithinSupportHours(hourRows);
+      const open = !cfg.manual_closed && scheduleOpen;
+
+      const hoursSummary = [0, 1, 2, 3, 4, 5, 6].map(weekday => {
+        const row = hourRows.find(r => r.weekday === weekday);
+        const label = hours.WEEKDAY_LABELS[weekday];
+        return row?.enabled && row.start_time && row.end_time
+          ? `${label}: ${row.start_time} – ${row.end_time}`
+          : `${label}: geschlossen`;
+      }).join('\n');
+
       const embed = new EmbedBuilder()
         .setTitle('🎧 Voice-Support-Status')
-        .setColor(0x5865F2)
+        .setColor(open ? 0x57F287 : 0xED4245)
         .addFields(
           { name: 'Warteraum',              value: `<#${cfg.waiting_channel_id}>`, inline: true },
           { name: 'Benachrichtigungskanal', value: cfg.notify_channel_id ? `<#${cfg.notify_channel_id}>` : 'Nicht gesetzt', inline: true },
           { name: 'Team-Rolle',             value: cfg.staff_role_id ? `<@&${cfg.staff_role_id}>` : 'Keine', inline: true },
-          { name: 'Gerade aktiv',           value: session.isActive(guildId) ? '✅ Ja, Bot spielt Wartemusik' : '⭕ Nein', inline: true },
+          { name: 'Manuell geschlossen',    value: cfg.manual_closed ? '✅ Ja (überschreibt Zeitplan)' : '⭕ Nein', inline: true },
+          { name: 'Aktuell',                value: open ? '🟢 Offen' : '🔴 Geschlossen', inline: true },
+          { name: 'Bot spielt gerade Wartemusik', value: session.isActive(guildId) ? '✅ Ja' : '⭕ Nein', inline: true },
+          { name: `Supportzeiten (${hours.TIMEZONE})`, value: hoursSummary, inline: false },
         );
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }

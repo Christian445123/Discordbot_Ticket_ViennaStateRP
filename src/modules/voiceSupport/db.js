@@ -13,7 +13,23 @@ async function initSchema(p) {
       guild_id           VARCHAR(32) PRIMARY KEY,
       waiting_channel_id VARCHAR(32),
       notify_channel_id  VARCHAR(32),
-      staff_role_id      VARCHAR(32)
+      staff_role_id      VARCHAR(32),
+      manual_closed      TINYINT(1) DEFAULT 0
+    ) ENGINE=InnoDB
+  `);
+  // Migrations: add columns introduced after the initial release
+  await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_closed TINYINT(1) DEFAULT 0`).catch(() => {});
+
+  // One row per configured weekday (0=Sonntag..6=Samstag, JS Date.getDay()
+  // convention) — a missing row, or enabled=0, means "geschlossen" that day.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS voice_support_hours (
+      guild_id   VARCHAR(32) NOT NULL,
+      weekday    TINYINT NOT NULL,
+      enabled    TINYINT(1) DEFAULT 0,
+      start_time VARCHAR(5),
+      end_time   VARCHAR(5),
+      PRIMARY KEY (guild_id, weekday)
     ) ENGINE=InnoDB
   `);
 }
@@ -27,9 +43,39 @@ async function getConfig(guildId) {
   return rows[0];
 }
 
+async function getAllConfigs() {
+  return query("SELECT * FROM voice_support_guilds WHERE waiting_channel_id IS NOT NULL");
+}
+
 async function updateConfig(guildId, data) {
   const fields = Object.keys(data).map(k => `${k} = :${k}`).join(', ');
   await query(`UPDATE voice_support_guilds SET ${fields} WHERE guild_id = :guild_id`, { ...data, guild_id: guildId });
 }
 
-module.exports = { initSchema, ensureGuild, getConfig, updateConfig };
+// ── Support hours ─────────────────────────────────────────────────────────────
+async function getHours(guildId) {
+  return query('SELECT * FROM voice_support_hours WHERE guild_id = :guildId', { guildId });
+}
+
+// Replaces all 7 weekday rows at once — the web panel/setup always sends
+// the full week, so a delete+reinsert is simpler and just as safe as a
+// per-row upsert here (the table is tiny and edited rarely).
+async function setHours(guildId, days) {
+  await query('DELETE FROM voice_support_hours WHERE guild_id = :guildId', { guildId });
+  for (const day of days) {
+    await query(`
+      INSERT INTO voice_support_hours (guild_id, weekday, enabled, start_time, end_time)
+      VALUES (:guildId, :weekday, :enabled, :startTime, :endTime)
+    `, {
+      guildId,
+      weekday:   day.weekday,
+      enabled:   day.enabled ? 1 : 0,
+      startTime: day.start_time || null,
+      endTime:   day.end_time || null,
+    });
+  }
+}
+
+module.exports = {
+  initSchema, ensureGuild, getConfig, getAllConfigs, updateConfig, getHours, setHours,
+};
