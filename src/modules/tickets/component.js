@@ -7,6 +7,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  UserSelectMenuBuilder,
   EmbedBuilder,
   PermissionFlagsBits,
   ChannelType,
@@ -42,7 +43,9 @@ function formatTicketNumber(ticketNumber) {
 // Shared by ticket creation (always starts un-held) and the "Warte auf
 // Rückmeldung" toggle handler, which rebuilds this row with the flipped
 // label/style instead of just editing the embed, so the button itself
-// reflects the current state too.
+// reflects the current state too. Returns two rows (Discord caps a single
+// row at 5 buttons) — "Mitglied hinzufügen" gets its own row since it's the
+// one button here any ticket participant may use, not just staff.
 function buildTicketButtonsRow(onHold) {
   const closeBtn = new ButtonBuilder()
     .setCustomId('close_ticket')
@@ -66,7 +69,22 @@ function buildTicketButtonsRow(onHold) {
     ? new ButtonBuilder().setCustomId('toggle_hold_ticket').setLabel('Warten beenden').setStyle(ButtonStyle.Primary).setEmoji('▶️')
     : new ButtonBuilder().setCustomId('toggle_hold_ticket').setLabel('Warte auf Rückmeldung').setStyle(ButtonStyle.Secondary).setEmoji('⏸️');
 
-  return new ActionRowBuilder().addComponents(closeBtn, claimBtn, askCloseBtn, holdBtn);
+  const assignBtn = new ButtonBuilder()
+    .setCustomId('assign_ticket')
+    .setLabel('Zuweisen')
+    .setStyle(ButtonStyle.Primary)
+    .setEmoji('🎯');
+
+  const addMemberBtn = new ButtonBuilder()
+    .setCustomId('add_member_ticket')
+    .setLabel('Mitglied hinzufügen')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('➕');
+
+  return [
+    new ActionRowBuilder().addComponents(closeBtn, claimBtn, askCloseBtn, holdBtn, assignBtn),
+    new ActionRowBuilder().addComponents(addMemberBtn),
+  ];
 }
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
@@ -209,13 +227,13 @@ async function createTicketChannel(interaction, category, subject) {
     .setFooter({ text: `Ticket #${formatTicketNumber(ticketNumber)} · Support-System` })
     .setTimestamp();
 
-  const row = buildTicketButtonsRow(false);
+  const rows = buildTicketButtonsRow(false);
 
   const pingMention = categoryNotify.buildPingMention(categoryCfg);
   const welcomeMsg = await channel.send({
     content: `${user}${pingMention ? ` ${pingMention}` : ''}`,
     embeds: [embed],
-    components: [row],
+    components: rows,
   });
   await db.updateTicketWelcomeMessage(ticketId, welcomeMsg.id);
 
@@ -246,7 +264,8 @@ async function createTicketChannel(interaction, category, subject) {
 // src/core/interactionRouter.js — this only ever sees buttons/selects/
 // modals, and only reacts to the "ticket_"/"close_"/"cancel_close"/
 // "confirm_close_"/"claim_ticket"/"ask_close_ticket"/"manage_categories"/
-// "manage_categories_toggle" customIds it owns.
+// "manage_categories_toggle"/"assign_ticket"/"assign_ticket_select_"/
+// "add_member_ticket"/"add_member_ticket_select" customIds it owns.
 async function component(interaction) {
 
     // ── Button: manage categories (lock/unlock) from the panel ──────────────
@@ -427,6 +446,133 @@ async function component(interaction) {
       return;
     }
 
+    // ── Button: assign ticket to a specific staff member ────────────────────
+    // Unlike "Übernehmen" (self-claim), this lets staff hand a ticket to
+    // someone else — stored in the same claimed_by_id/claimed_by_name fields,
+    // since "assigned to" and "in Bearbeitung von" are the same state.
+    if (interaction.isButton() && interaction.customId === 'assign_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.reply({ content: '❌ Nur Staff kann Tickets zuweisen.', ephemeral: true });
+      }
+
+      const userSelect = new UserSelectMenuBuilder()
+        .setCustomId(`assign_ticket_select_${ticket.id}`)
+        .setPlaceholder('Person auswählen, der das Ticket zugewiesen werden soll…')
+        .setMinValues(1)
+        .setMaxValues(1);
+
+      await interaction.reply({
+        content: 'Wähle die Person aus, der dieses Ticket zugewiesen werden soll:',
+        components: [new ActionRowBuilder().addComponents(userSelect)],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // ── Select: target of "Zuweisen" chosen ──────────────────────────────────
+    if (interaction.isUserSelectMenu() && interaction.customId.startsWith('assign_ticket_select_')) {
+      const ticketId = parseInt(interaction.customId.replace('assign_ticket_select_', ''), 10);
+      const ticket    = await db.getTicketById(ticketId);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.update({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', components: [] });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.update({ content: '❌ Nur Staff kann Tickets zuweisen.', components: [] });
+      }
+
+      const target       = interaction.users.first();
+      const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+      if (!targetMember || !isTicketStaff(targetMember, guildCfg, categoryCfg)) {
+        return interaction.update({
+          content: `❌ ${target} ist kein Staff-Mitglied und kann diesem Ticket nicht zugewiesen werden.`,
+          components: [],
+        });
+      }
+
+      await db.claimTicket(ticket.id, { claimedById: target.id, claimedByName: target.tag });
+
+      // Assigning doesn't imply the person could already see the channel
+      // (contrast self-claim, where the clicker is already staff-visible).
+      await interaction.channel.permissionOverwrites.edit(target.id, {
+        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+      }).catch(() => {});
+
+      const welcomeMsg = ticket.welcome_message_id
+        ? await interaction.channel.messages.fetch(ticket.welcome_message_id).catch(() => null)
+        : null;
+      if (welcomeMsg) {
+        await ticketEmbed.refreshWelcomeEmbedStatus(welcomeMsg, {
+          ...ticket, claimed_by_id: target.id, claimed_by_name: target.tag,
+        });
+      }
+
+      await interaction.update({ content: `🎯 Ticket wurde ${target} zugewiesen.`, components: [] });
+      await interaction.channel.send({ content: `🎯 ${interaction.user} hat dieses Ticket ${target} zugewiesen. Status: **In Bearbeitung**` });
+
+      await ticketLog.logTicketClaimed(interaction.client, interaction.guild.id, {
+        ticket, claimedByTag: target.tag, source: '🎮 Discord',
+      });
+      return;
+    }
+
+    // ── Button: add another Discord member to the ticket ────────────────────
+    // Deliberately open to any ticket participant, not just staff — the
+    // ticket opener is the main person expected to use this (e.g. pulling in
+    // a friend or witness), so there is no isTicketStaff gate here.
+    if (interaction.isButton() && interaction.customId === 'add_member_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const userSelect = new UserSelectMenuBuilder()
+        .setCustomId('add_member_ticket_select')
+        .setPlaceholder('Mitglied(er) auswählen…')
+        .setMinValues(1)
+        .setMaxValues(5);
+
+      await interaction.reply({
+        content: 'Wähle die Mitglieder aus, die zu diesem Ticket hinzugefügt werden sollen:',
+        components: [new ActionRowBuilder().addComponents(userSelect)],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // ── Select: members to add chosen ────────────────────────────────────────
+    if (interaction.isUserSelectMenu() && interaction.customId === 'add_member_ticket_select') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.update({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', components: [] });
+      }
+
+      const targets = [...interaction.users.values()];
+      for (const target of targets) {
+        await interaction.channel.permissionOverwrites.edit(target.id, {
+          ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+        }).catch(() => {});
+      }
+
+      const mentions = targets.map(t => `${t}`).join(', ');
+      await interaction.update({ content: `✅ Hinzugefügt: ${mentions}`, components: [] });
+      await interaction.channel.send({ content: `➕ ${interaction.user} hat ${mentions} zu diesem Ticket hinzugefügt.` });
+
+      await ticketLog.logMemberAdded(interaction.client, interaction.guild.id, {
+        ticket, addedByTag: interaction.user.tag, addedTags: targets.map(t => t.tag), source: '🎮 Discord',
+      });
+      return;
+    }
+
     // ── Button: ask ticket opener whether it can be closed ──────────────────
     // Public prompt (not ephemeral) so the ticket opener actually sees it and
     // can respond — reuses the same confirm_close_/cancel_close customIds the
@@ -498,7 +644,7 @@ async function component(interaction) {
         const [oldEmbed] = interaction.message.embeds;
         if (oldEmbed) {
           const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
-          await interaction.message.edit({ embeds: [embed], components: [buildTicketButtonsRow(turningOn)] });
+          await interaction.message.edit({ embeds: [embed], components: buildTicketButtonsRow(turningOn) });
         }
       } catch (err) { /* best-effort — the DB change above already stuck */ }
 

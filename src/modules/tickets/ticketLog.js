@@ -138,6 +138,22 @@ async function logTicketHoldChanged(discordClient, guildId, { ticket, changedByT
   await dispatch(discordClient, guildId, TICKET_WEBHOOK, { embeds: [embed] });
 }
 
+async function logMemberAdded(discordClient, guildId, { ticket, addedByTag, addedTags, source }) {
+  const embed = new EmbedBuilder()
+    .setTitle('➕ Mitglied zum Ticket hinzugefügt')
+    .setColor(0x57F287)
+    .addFields(
+      { name: 'Server',       value: guildName(discordClient, guildId), inline: true },
+      { name: 'Ticket-Nr.',   value: formatTicketRef(ticket),           inline: true },
+      { name: 'Von',          value: addedByTag,                        inline: true },
+      { name: 'Hinzugefügt',  value: addedTags.join(', '),              inline: false },
+      { name: 'Quelle',       value: source || '🎮 Discord',            inline: true },
+    )
+    .setTimestamp();
+
+  await dispatch(discordClient, guildId, TICKET_WEBHOOK, { embeds: [embed] });
+}
+
 async function logCategoryChanged(discordClient, guildId, { ticket, oldCategory, newCategory, changedByTag }) {
   const embed = new EmbedBuilder()
     .setTitle('🏷️ Kategorie geändert')
@@ -185,5 +201,5 @@ async function logSystemAction(discordClient, guildId, { title, description, col
 
 module.exports = {
   logTicketCreated, logTicketClosed, logNoteAdded, logTicketClaimed, logTicketHoldChanged,
-  logCategoryChanged, logCategoryConfigChanged, logSystemAction,
+  logMemberAdded, logCategoryChanged, logCategoryConfigChanged, logSystemAction,
 };
