@@ -540,14 +540,16 @@ const VOICE_WEEKDAY_ORDER  = [1, 2, 3, 4, 5, 6, 0];
 const VOICE_WEEKDAY_LABELS = { 0: 'Sonntag', 1: 'Montag', 2: 'Dienstag', 3: 'Mittwoch', 4: 'Donnerstag', 5: 'Freitag', 6: 'Samstag' };
 
 async function loadVoiceSupportChannelOptions() {
-  const [voiceRes, textRes, rolesRes] = await Promise.all([
+  const [voiceRes, textRes, rolesRes, categoriesRes] = await Promise.all([
     apiFetch('/api/admin/voice-support/channels?type=voice'),
     apiFetch('/api/admin/voice-support/channels?type=text'),
     apiFetch('/api/admin/guild-roles'),
+    apiFetch('/api/admin/categories'),
   ]);
-  const voiceChannels = voiceRes.ok ? await voiceRes.json() : [];
-  const textChannels  = textRes.ok  ? await textRes.json()  : [];
-  const roles         = rolesRes.ok ? await rolesRes.json() : [];
+  const voiceChannels = voiceRes.ok       ? await voiceRes.json()       : [];
+  const textChannels  = textRes.ok        ? await textRes.json()        : [];
+  const roles         = rolesRes.ok       ? await rolesRes.json()       : [];
+  const categories    = categoriesRes.ok  ? await categoriesRes.json()  : [];
 
   document.getElementById('voiceWaitingChannel').innerHTML =
     '<option value="">Kein Warteraum ausgewählt</option>' +
@@ -560,6 +562,10 @@ async function loadVoiceSupportChannelOptions() {
   document.getElementById('voiceTeamRole').innerHTML =
     '<option value="">Keine</option>' +
     roles.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+
+  document.getElementById('voiceTicketCategory').innerHTML =
+    '<option value="">Nicht gesetzt</option>' +
+    categories.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</option>`).join('');
 }
 
 function renderVoiceHoursRows(days) {
@@ -595,7 +601,8 @@ async function loadVoiceSupportSettings() {
   document.getElementById('voiceWaitingChannel').value = data.waiting_channel_id || '';
   document.getElementById('voiceNotifyChannel').value  = data.notify_channel_id  || '';
   document.getElementById('voiceTeamRole').value       = data.staff_role_id     || '';
-  document.getElementById('voiceManualClosed').checked = !!data.manual_closed;
+  document.getElementById('voiceManualOverride').value = data.manual_override   || '';
+  document.getElementById('voiceTicketCategory').value = data.ticket_category   || '';
   document.getElementById('voiceTimezoneLabel').textContent = data.timezone || 'Europe/Vienna';
 
   const badge = document.getElementById('voiceStatusBadge');
@@ -611,7 +618,8 @@ async function saveVoiceSupportConfig() {
     waiting_channel_id: document.getElementById('voiceWaitingChannel').value || null,
     notify_channel_id:  document.getElementById('voiceNotifyChannel').value  || null,
     staff_role_id:      document.getElementById('voiceTeamRole').value       || null,
-    manual_closed:      document.getElementById('voiceManualClosed').checked ? 1 : 0,
+    manual_override:    document.getElementById('voiceManualOverride').value || null,
+    ticket_category:    document.getElementById('voiceTicketCategory').value || null,
   };
 
   alertEl.className   = 'alert alert-info';

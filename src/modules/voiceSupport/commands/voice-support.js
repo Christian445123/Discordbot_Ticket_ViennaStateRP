@@ -69,17 +69,12 @@ module.exports = {
         return interaction.reply({ content: 'ℹ️ Voice-Support ist nicht eingerichtet. Nutze `/voice-support setup`.', ephemeral: true });
       }
 
-      const hourRows   = await db.getHours(guildId);
-      const scheduleOpen = hours.isWithinSupportHours(hourRows);
-      const open = !cfg.manual_closed && scheduleOpen;
+      const hourRows = await db.getHours(guildId);
+      const open     = await scheduler.isOpen(guildId, cfg);
 
-      const hoursSummary = [0, 1, 2, 3, 4, 5, 6].map(weekday => {
-        const row = hourRows.find(r => r.weekday === weekday);
-        const label = hours.WEEKDAY_LABELS[weekday];
-        return row?.enabled && row.start_time && row.end_time
-          ? `${label}: ${row.start_time} – ${row.end_time}`
-          : `${label}: geschlossen`;
-      }).join('\n');
+      const overrideLabel = cfg.manual_override === 'closed' ? '🔒 Manuell geschlossen'
+        : cfg.manual_override === 'open' ? '🔓 Manuell geöffnet'
+        : '⭕ Keine (automatisch nach Zeitplan)';
 
       const embed = new EmbedBuilder()
         .setTitle('🎧 Voice-Support-Status')
@@ -88,17 +83,20 @@ module.exports = {
           { name: 'Warteraum',              value: `<#${cfg.waiting_channel_id}>`, inline: true },
           { name: 'Benachrichtigungskanal', value: cfg.notify_channel_id ? `<#${cfg.notify_channel_id}>` : 'Nicht gesetzt', inline: true },
           { name: 'Team-Rolle',             value: cfg.staff_role_id ? `<@&${cfg.staff_role_id}>` : 'Keine', inline: true },
-          { name: 'Manuell geschlossen',    value: cfg.manual_closed ? '✅ Ja (überschreibt Zeitplan)' : '⭕ Nein', inline: true },
+          { name: 'Manuelle Übersteuerung', value: overrideLabel, inline: true },
           { name: 'Aktuell',                value: open ? '🟢 Offen' : '🔴 Geschlossen', inline: true },
           { name: 'Bot spielt gerade Wartemusik', value: session.isActive(guildId) ? '✅ Ja' : '⭕ Nein', inline: true },
-          { name: `Supportzeiten (${hours.TIMEZONE})`, value: hoursSummary, inline: false },
+          { name: 'Ticket-Kategorie (bei geschlossen)', value: cfg.ticket_category || 'Nicht gesetzt', inline: true },
+          { name: `Supportzeiten (${hours.TIMEZONE})`, value: hours.formatWeeklySummary(hourRows), inline: false },
         );
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     // sub === 'deaktivieren'
     session.stopSession(guildId);
-    await db.updateConfig(guildId, { waiting_channel_id: null, notify_channel_id: null, staff_role_id: null });
+    await db.updateConfig(guildId, {
+      waiting_channel_id: null, notify_channel_id: null, staff_role_id: null, manual_override: null,
+    });
     return interaction.reply({ content: '🛑 Voice-Support wurde deaktiviert.', ephemeral: true });
   },
 };

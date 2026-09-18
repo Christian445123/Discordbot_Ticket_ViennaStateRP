@@ -14,11 +14,22 @@ async function initSchema(p) {
       waiting_channel_id VARCHAR(32),
       notify_channel_id  VARCHAR(32),
       staff_role_id      VARCHAR(32),
-      manual_closed      TINYINT(1) DEFAULT 0
+      manual_override    VARCHAR(10) DEFAULT NULL,
+      ticket_category    VARCHAR(80) DEFAULT NULL
     ) ENGINE=InnoDB
   `);
   // Migrations: add columns introduced after the initial release
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_closed TINYINT(1) DEFAULT 0`).catch(() => {});
+  await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_override VARCHAR(10) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS ticket_category VARCHAR(80) DEFAULT NULL`).catch(() => {});
+  // manual_closed (plain boolean) is superseded by the tri-state
+  // manual_override ('open' | 'closed' | NULL = automatisch nach Zeitplan) —
+  // carry forward anyone who already had it set to true, one-time only
+  // (the WHERE guards against re-running this on every boot).
+  await p.query(`
+    UPDATE voice_support_guilds SET manual_override = 'closed'
+    WHERE manual_closed = 1 AND manual_override IS NULL
+  `).catch(() => {});
 
   // One row per configured weekday (0=Sonntag..6=Samstag, JS Date.getDay()
   // convention) — a missing row, or enabled=0, means "geschlossen" that day.

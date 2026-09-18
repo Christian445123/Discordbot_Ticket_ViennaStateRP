@@ -41,4 +41,16 @@ function isWithinSupportHours(rows, date = new Date()) {
   return minutes >= start || minutes < end;
 }
 
-module.exports = { TIMEZONE, WEEKDAY_LABELS, isWithinSupportHours };
+// Shared by /voice-support status and the "Support ist geschlossen"-Hinweis
+// im Warteraum, so both surfaces describe the same schedule identically.
+function formatWeeklySummary(rows) {
+  return [0, 1, 2, 3, 4, 5, 6].map(weekday => {
+    const row = rows.find(r => r.weekday === weekday);
+    const label = WEEKDAY_LABELS[weekday];
+    return row?.enabled && row.start_time && row.end_time
+      ? `${label}: ${row.start_time} – ${row.end_time}`
+      : `${label}: geschlossen`;
+  }).join('\n');
+}
+
+module.exports = { TIMEZONE, WEEKDAY_LABELS, isWithinSupportHours, formatWeeklySummary };

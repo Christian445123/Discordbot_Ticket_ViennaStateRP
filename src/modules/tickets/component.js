@@ -661,4 +661,9 @@ async function component(interaction) {
     }
 }
 
-module.exports = { component };
+// createTicketChannel is also reused by src/modules/voiceSupport/component.js
+// (the "Supportticket erstellen" button posted when someone joins the voice
+// waiting room outside support hours) — it only needs a guild-context
+// interaction (interaction.guild/.user/.reply), a configured category name,
+// and a subject string, so it works unchanged from that button click too.
+module.exports = { component, createTicketChannel };

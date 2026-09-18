@@ -169,8 +169,9 @@
       <div id="pane-voice" class="d-none">
         <p class="text-muted small mb-4">
           Tritt ein Nutzer innerhalb der Supportzeiten dem Warteraum bei, joint der Bot demselben Kanal, spielt
-          Wartemusik ab und benachrichtigt das Team. Außerhalb der Supportzeiten (oder manuell geschlossen) wird
-          der Kanal nur umbenannt — der Bot bleibt inaktiv.
+          Wartemusik ab und benachrichtigt das Team. Außerhalb der Supportzeiten (oder manuell geschlossen) bekommt
+          der Nutzer stattdessen einen Hinweis mit den Supportzeiten und einem Button, um direkt ein Ticket zu
+          erstellen. Eine manuelle Übersteuerung (offen oder geschlossen) gewinnt dabei immer gegen den Zeitplan.
         </p>
 
         <div class="card bg-dark-card border-0 shadow-sm mb-4">
@@ -202,12 +203,21 @@
               </div>
             </div>
 
-            <div class="form-check form-switch mb-3">
-              <input class="form-check-input" type="checkbox" id="voiceManualClosed" />
-              <label class="form-check-label" for="voiceManualClosed">
-                Warteraum manuell geschlossen halten
-                <span class="text-muted small">(überschreibt die Supportzeiten, bis wieder deaktiviert)</span>
-              </label>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label text-muted small">Manuelle Übersteuerung <span class="text-muted">(gewinnt immer gegen die Supportzeiten)</span></label>
+                <select id="voiceManualOverride" class="form-select">
+                  <option value="">Keine – automatisch nach Supportzeiten</option>
+                  <option value="open">🔓 Manuell geöffnet halten</option>
+                  <option value="closed">🔒 Manuell geschlossen halten</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label text-muted small">Ticket-Kategorie <span class="text-muted">(für den "Supportticket erstellen"-Button, wenn geschlossen)</span></label>
+                <select id="voiceTicketCategory" class="form-select">
+                  <option value="">Nicht gesetzt</option>
+                </select>
+              </div>
             </div>
 
             <button class="btn btn-primary btn-sm" onclick="saveVoiceSupportConfig()">
