@@ -14,13 +14,17 @@
     "migrate:sqlite-to-mysql": "node scripts/migrate-sqlite-to-mysql.js"
   },
   "dependencies": {
+    "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "express-session": "^1.18.0",
+    "ffmpeg-static": "^5.2.0",
     "mysql2": "^3.9.7",
+    "opusscript": "^0.1.1",
     "passport": "^0.7.0",
-    "passport-discord": "^0.1.4"
+    "passport-discord": "^0.1.4",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "better-sqlite3": "^9.4.3",
