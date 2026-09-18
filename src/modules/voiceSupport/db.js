@@ -24,6 +24,7 @@ async function initSchema(p) {
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_override VARCHAR(10) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS ticket_category VARCHAR(80) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS test_mode TINYINT(1) DEFAULT 0`).catch(() => {});
+  await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_override_set_at DATETIME DEFAULT NULL`).catch(() => {});
   // manual_closed (plain boolean) is superseded by the tri-state
   // manual_override ('open' | 'closed' | NULL = automatisch nach Zeitplan) —
   // carry forward anyone who already had it set to true, one-time only
@@ -31,6 +32,14 @@ async function initSchema(p) {
   await p.query(`
     UPDATE voice_support_guilds SET manual_override = 'closed'
     WHERE manual_closed = 1 AND manual_override IS NULL
+  `).catch(() => {});
+  // Backfill a timestamp for rows that already had a manual override set
+  // before this column existed, so the 30-minute auto-revert (see
+  // scheduler.isOpen) has something to measure against instead of never
+  // expiring for them. One-time per row (WHERE guards re-running).
+  await p.query(`
+    UPDATE voice_support_guilds SET manual_override_set_at = NOW()
+    WHERE manual_override IS NOT NULL AND manual_override_set_at IS NULL
   `).catch(() => {});
 
   // One row per configured weekday (0=Sonntag..6=Samstag, JS Date.getDay()
@@ -61,6 +70,12 @@ async function getAllConfigs() {
 }
 
 async function updateConfig(guildId, data) {
+  // Whenever manual_override is (re)written, stamp/clear when it happened
+  // alongside it, so callers never have to remember to do this separately —
+  // scheduler.isOpen relies on this timestamp to auto-revert after 30min.
+  if (Object.prototype.hasOwnProperty.call(data, 'manual_override')) {
+    data = { ...data, manual_override_set_at: data.manual_override ? new Date() : null };
+  }
   const fields = Object.keys(data).map(k => `${k} = :${k}`).join(', ');
   await query(`UPDATE voice_support_guilds SET ${fields} WHERE guild_id = :guild_id`, { ...data, guild_id: guildId });
 }
