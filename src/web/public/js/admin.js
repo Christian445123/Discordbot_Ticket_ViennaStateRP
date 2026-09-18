@@ -603,11 +603,12 @@ async function loadVoiceSupportSettings() {
   document.getElementById('voiceTeamRole').value       = data.staff_role_id     || '';
   document.getElementById('voiceManualOverride').value = data.manual_override   || '';
   document.getElementById('voiceTicketCategory').value = data.ticket_category   || '';
+  document.getElementById('voiceTestMode').checked     = !!data.test_mode;
   document.getElementById('voiceTimezoneLabel').textContent = data.timezone || 'Europe/Vienna';
 
   const badge = document.getElementById('voiceStatusBadge');
-  badge.textContent = data.open ? '🟢 Offen' : '🔴 Geschlossen';
-  badge.className   = `ticket-badge ${data.open ? 'badge-load-green' : 'badge-load-red'}`;
+  badge.textContent = data.test_mode ? '🧪 Testmodus' : (data.open ? '🟢 Offen' : '🔴 Geschlossen');
+  badge.className   = `ticket-badge ${data.test_mode ? 'badge-load-yellow' : (data.open ? 'badge-load-green' : 'badge-load-red')}`;
 
   renderVoiceHoursRows(data.days);
 }
@@ -620,6 +621,7 @@ async function saveVoiceSupportConfig() {
     staff_role_id:      document.getElementById('voiceTeamRole').value       || null,
     manual_override:    document.getElementById('voiceManualOverride').value || null,
     ticket_category:    document.getElementById('voiceTicketCategory').value || null,
+    test_mode:          document.getElementById('voiceTestMode').checked ? 1 : 0,
   };
 
   alertEl.className   = 'alert alert-info';

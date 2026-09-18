@@ -29,7 +29,7 @@ async function execute(oldState, newState) {
   if (joinedWaitingRoom) {
     const existing = session.getSession(guildId);
 
-    if (waitRoom.isStaffMember(member, cfg.staff_role_id)) {
+    if (waitRoom.isStaffMember(member, cfg)) {
       // A staff member joining in person means the wait is over — stop the
       // hold music so it doesn't talk over the actual support conversation.
       if (existing) session.stopSession(guildId);
@@ -50,7 +50,7 @@ async function execute(oldState, newState) {
     // Staff already sitting in the waiting room (e.g. keeping an eye on
     // it) means this user is already being helped in person — no need
     // for hold music or a "someone is waiting" ping.
-    if (waitRoom.staffAlreadyPresent(newState.channel, cfg.staff_role_id, member.id)) return;
+    if (waitRoom.staffAlreadyPresent(newState.channel, cfg, member.id)) return;
 
     session.startSession(newState.channel, member.id);
     await waitRoom.sendWaitNotification(newState.client, guildId, cfg, member, newState.channel);
@@ -63,7 +63,7 @@ async function execute(oldState, newState) {
   existing.waitingUserIds.delete(member.id);
 
   const channel   = oldState.channel;
-  const remaining = channel ? waitRoom.countWaitingNonStaff(channel, cfg.staff_role_id) : 0;
+  const remaining = channel ? waitRoom.countWaitingNonStaff(channel, cfg) : 0;
   if (remaining === 0) session.stopSession(guildId);
 }
 

@@ -15,18 +15,23 @@ const logger  = require('../../utils/logger');
 const CREATE_TICKET_BUTTON_ID = 'voice_support_create_ticket';
 
 // Administrator always counts as staff (same convention as the ticket
-// module's isTicketStaff), on top of whatever team_rolle was configured.
-function isStaffMember(member, staffRoleId) {
+// module's isTicketStaff), on top of whatever team_rolle was configured —
+// UNLESS cfg.test_mode is on, which deliberately makes every staff/admin
+// member look like a regular waiting user, so a team that only has staff
+// accounts can still test the join/hold-music/notification flow on
+// themselves instead of needing a second, non-staff Discord account.
+function isStaffMember(member, cfg) {
+  if (cfg?.test_mode) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  return !!(staffRoleId && member.roles.cache.has(staffRoleId));
+  return !!(cfg?.staff_role_id && member.roles.cache.has(cfg.staff_role_id));
 }
 
-function countWaitingNonStaff(channel, staffRoleId) {
-  return channel.members.filter(m => !m.user.bot && !isStaffMember(m, staffRoleId)).size;
+function countWaitingNonStaff(channel, cfg) {
+  return channel.members.filter(m => !m.user.bot && !isStaffMember(m, cfg)).size;
 }
 
-function staffAlreadyPresent(channel, staffRoleId, exceptMemberId) {
-  return channel.members.some(m => m.id !== exceptMemberId && !m.user.bot && isStaffMember(m, staffRoleId));
+function staffAlreadyPresent(channel, cfg, exceptMemberId) {
+  return channel.members.some(m => m.id !== exceptMemberId && !m.user.bot && isStaffMember(m, cfg));
 }
 
 async function sendWaitNotification(client, guildId, cfg, member, channel) {
@@ -58,9 +63,9 @@ async function sendWaitNotification(client, guildId, cfg, member, channel) {
 // of waiting for them to leave and rejoin.
 async function startIfWaiting(client, guildId, cfg, channel) {
   if (session.getSession(guildId)) return;
-  if (staffAlreadyPresent(channel, cfg.staff_role_id, null)) return;
+  if (staffAlreadyPresent(channel, cfg, null)) return;
 
-  const waiting = channel.members.filter(m => !m.user.bot && !isStaffMember(m, cfg.staff_role_id));
+  const waiting = channel.members.filter(m => !m.user.bot && !isStaffMember(m, cfg));
   const first = waiting.first();
   if (!first) return;
 

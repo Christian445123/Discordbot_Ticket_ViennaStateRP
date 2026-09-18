@@ -15,13 +15,15 @@ async function initSchema(p) {
       notify_channel_id  VARCHAR(32),
       staff_role_id      VARCHAR(32),
       manual_override    VARCHAR(10) DEFAULT NULL,
-      ticket_category    VARCHAR(80) DEFAULT NULL
+      ticket_category    VARCHAR(80) DEFAULT NULL,
+      test_mode          TINYINT(1) DEFAULT 0
     ) ENGINE=InnoDB
   `);
   // Migrations: add columns introduced after the initial release
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_closed TINYINT(1) DEFAULT 0`).catch(() => {});
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS manual_override VARCHAR(10) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS ticket_category VARCHAR(80) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE voice_support_guilds ADD COLUMN IF NOT EXISTS test_mode TINYINT(1) DEFAULT 0`).catch(() => {});
   // manual_closed (plain boolean) is superseded by the tri-state
   // manual_override ('open' | 'closed' | NULL = automatisch nach Zeitplan) —
   // carry forward anyone who already had it set to true, one-time only

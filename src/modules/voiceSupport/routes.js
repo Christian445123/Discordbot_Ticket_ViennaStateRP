@@ -79,6 +79,7 @@ module.exports = function voiceSupportRoutes(discordClient) {
         staff_role_id:      cfg?.staff_role_id || null,
         ticket_category:    cfg?.ticket_category || null,
         manual_override:    cfg?.manual_override || null,
+        test_mode:          !!cfg?.test_mode,
         open:               await scheduler.isOpen(guildId, cfg),
         timezone:           hours.TIMEZONE,
         days,
@@ -117,6 +118,9 @@ module.exports = function voiceSupportRoutes(discordClient) {
           return res.status(400).json({ error: 'Ticket-Kategorie nicht gefunden' });
         }
         updates.ticket_category = name;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body, 'test_mode')) {
+        updates.test_mode = req.body.test_mode ? 1 : 0;
       }
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: 'Keine Felder angegeben' });

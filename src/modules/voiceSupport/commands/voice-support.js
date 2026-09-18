@@ -87,6 +87,13 @@ module.exports = {
           { name: 'Aktuell',                value: open ? '🟢 Offen' : '🔴 Geschlossen', inline: true },
           { name: 'Bot spielt gerade Wartemusik', value: session.isActive(guildId) ? '✅ Ja' : '⭕ Nein', inline: true },
           { name: 'Ticket-Kategorie (bei geschlossen)', value: cfg.ticket_category || 'Nicht gesetzt', inline: true },
+          {
+            name:  '🧪 Testmodus',
+            value: cfg.test_mode
+              ? '✅ Aktiv – Staff/Admins werden wie normale Nutzer behandelt (nur zum Testen, im Webpanel wieder ausschalten!)'
+              : '⭕ Aus',
+            inline: false,
+          },
           { name: `Supportzeiten (${hours.TIMEZONE})`, value: hours.formatWeeklySummary(hourRows), inline: false },
         );
       return interaction.reply({ embeds: [embed], ephemeral: true });
