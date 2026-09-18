@@ -42,6 +42,7 @@ function createLoopingResource() {
 // are just added to the returned session's waitingUserIds by the caller.
 function startSession(voiceChannel, firstUserId) {
   const guildId = voiceChannel.guild.id;
+  logger.info(`Voice-Support: Trete Warteraum "${voiceChannel.name}" (Guild ${guildId}) bei…`);
 
   const connection = joinVoiceChannel({
     channelId:      voiceChannel.id,
@@ -49,6 +50,17 @@ function startSession(voiceChannel, firstUserId) {
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf:       false,
   });
+
+  // joinVoiceChannel() itself never throws for a missing "Verbinden"/
+  // "Sprechen"-Berechtigung — the connection just silently never reaches
+  // Ready. Without this, that failure mode looks identical to "nothing
+  // happened" from the outside; this makes it show up in the logs instead.
+  entersState(connection, VoiceConnectionStatus.Ready, 15_000)
+    .then(() => logger.info(`Voice-Support: Verbindung zu "${voiceChannel.name}" (Guild ${guildId}) steht.`))
+    .catch(err => logger.error(
+      `Voice-Support: Verbindung zu "${voiceChannel.name}" (Guild ${guildId}) kam nicht zustande – ` +
+      `vermutlich fehlt dem Bot dort "Verbinden" und/oder "Sprechen". (${err.message})`,
+    ));
 
   const player  = createAudioPlayer();
   const session = { connection, player, waitingUserIds: new Set([firstUserId]) };

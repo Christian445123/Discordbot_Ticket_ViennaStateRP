@@ -5,6 +5,7 @@ const db        = require('../db');
 const session   = require('../session');
 const scheduler = require('../scheduler');
 const waitRoom  = require('../waitRoom');
+const logger    = require('../../../utils/logger');
 
 // Watches the configured waiting-room voice channel: while support is open
 // (schedule, or a manual override — see scheduler.isOpen), the bot joins
@@ -27,22 +28,26 @@ async function execute(oldState, newState) {
   if (!member || member.user.bot) return;
 
   if (joinedWaitingRoom) {
+    logger.info(`Voice-Support: ${member.user.tag} ist dem Warteraum in Guild ${guildId} beigetreten.`);
     const existing = session.getSession(guildId);
 
     if (waitRoom.isStaffMember(member, cfg)) {
       // A staff member joining in person means the wait is over — stop the
       // hold music so it doesn't talk over the actual support conversation.
+      logger.info(`Voice-Support: ${member.user.tag} gilt als Staff (Testmodus aus) – keine Aktion.`);
       if (existing) session.stopSession(guildId);
       return;
     }
 
     if (existing) {
+      logger.info('Voice-Support: Es wartet schon jemand, füge Nutzer zur laufenden Session hinzu.');
       existing.waitingUserIds.add(member.id);
       return;
     }
 
     const open = await scheduler.isOpen(guildId, cfg);
     if (!open) {
+      logger.info('Voice-Support: Warteraum ist geschlossen – sende "geschlossen"-Hinweis per DM.');
       await waitRoom.sendClosedNotice(guildId, cfg, member, newState.channel);
       return;
     }
@@ -50,8 +55,12 @@ async function execute(oldState, newState) {
     // Staff already sitting in the waiting room (e.g. keeping an eye on
     // it) means this user is already being helped in person — no need
     // for hold music or a "someone is waiting" ping.
-    if (waitRoom.staffAlreadyPresent(newState.channel, cfg, member.id)) return;
+    if (waitRoom.staffAlreadyPresent(newState.channel, cfg, member.id)) {
+      logger.info('Voice-Support: Staff sitzt bereits im Warteraum – keine Aktion.');
+      return;
+    }
 
+    logger.info('Voice-Support: Warteraum ist offen – starte Session (Beitritt + Wartemusik).');
     session.startSession(newState.channel, member.id);
     await waitRoom.sendWaitNotification(newState.client, guildId, cfg, member, newState.channel);
     return;
