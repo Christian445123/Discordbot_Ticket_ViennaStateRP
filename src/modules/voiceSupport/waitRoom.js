@@ -12,7 +12,10 @@ const session = require('./session');
 const hours   = require('./hours');
 const logger  = require('../../utils/logger');
 
-const CREATE_TICKET_BUTTON_ID = 'voice_support_create_ticket';
+// The closed-notice is a DM, which has no guild context of its own — the
+// guild is encoded right in the customId so the button handler
+// (voiceSupport/component.js) knows which server's ticket system to use.
+const CREATE_TICKET_BUTTON_PREFIX = 'voice_support_create_ticket_';
 
 // Administrator always counts as staff (same convention as the ticket
 // module's isTicketStaff), on top of whatever team_rolle was configured —
@@ -76,10 +79,11 @@ async function startIfWaiting(client, guildId, cfg, channel) {
   await sendWaitNotification(client, guildId, cfg, first, channel);
 }
 
-// Posted in the waiting room's own chat (not a DM — that would need a
-// guild to create a ticket in, which a DM interaction doesn't carry) when
-// someone joins while support is closed: explains the support hours and
-// offers a one-click ticket instead of waiting for nobody.
+// Sent as a DM when someone joins the waiting room while support is
+// closed: explains the support hours and offers a one-click ticket
+// instead of waiting for nobody. Falls back to a mention in the waiting
+// room's own chat if the DM can't be delivered (e.g. the user has direct
+// messages from server members turned off), so they still get the info.
 async function sendClosedNotice(guildId, cfg, member, channel) {
   const hourRows = await db.getHours(guildId);
 
@@ -92,19 +96,24 @@ async function sendClosedNotice(guildId, cfg, member, channel) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(CREATE_TICKET_BUTTON_ID)
+      .setCustomId(`${CREATE_TICKET_BUTTON_PREFIX}${guildId}`)
       .setLabel('Supportticket erstellen')
       .setStyle(ButtonStyle.Primary)
       .setEmoji('🎫'),
   );
 
-  await channel.send({ content: `${member}`, embeds: [embed], components: [row] }).catch(err => {
-    logger.error('Voice-Support: "Geschlossen"-Hinweis konnte nicht gesendet werden:', err.message);
-  });
+  try {
+    await member.send({ embeds: [embed], components: [row] });
+  } catch (err) {
+    logger.warn(`Voice-Support: DM an ${member.user.tag} nicht zustellbar (${err.message}), weiche auf den Warteraum-Chat aus.`);
+    await channel.send({ content: `${member}`, embeds: [embed], components: [row] }).catch(err2 => {
+      logger.error('Voice-Support: "Geschlossen"-Hinweis konnte auch im Warteraum-Chat nicht gesendet werden:', err2.message);
+    });
+  }
 }
 
 module.exports = {
-  CREATE_TICKET_BUTTON_ID,
+  CREATE_TICKET_BUTTON_PREFIX,
   isStaffMember,
   countWaitingNonStaff,
   staffAlreadyPresent,

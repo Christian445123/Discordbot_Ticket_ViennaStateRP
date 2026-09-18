@@ -132,8 +132,14 @@ async function closeTicket(interaction, ticket) {
 }
 
 // ── Helper: create ticket channel ─────────────────────────────────────────────
-async function createTicketChannel(interaction, category, subject) {
-  const { guild, user } = interaction;
+// `guild` defaults to interaction.guild (the normal in-guild case: panel
+// select menu, modal submit) but can be passed explicitly for an
+// interaction that has no guild context of its own — e.g. a button click
+// on a DM (see voiceSupport/component.js's "Supportticket erstellen"
+// button, sent by waitRoom.sendClosedNotice), where the target guild is
+// encoded in the customId instead.
+async function createTicketChannel(interaction, category, subject, guild = interaction.guild) {
+  const { user } = interaction;
 
   await db.ensureGuildWithDefaults(guild.id);
 
