@@ -23,6 +23,11 @@ const MODULES_DIR = path.join(__dirname, '..', 'modules');
 
 let cachedModules = null;
 
+// One module failing to load (typo'd require path, a dependency that was
+// added to package.json but never actually npm-installed, ...) must not
+// take the entire bot down with it — every other module's commands/events
+// would otherwise silently stop working too, which is a much harder failure
+// to diagnose than "this one module didn't load, see the error above".
 function getModules() {
   if (cachedModules) return cachedModules;
 
@@ -30,7 +35,14 @@ function getModules() {
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
     .sort()
-    .map(name => ({ name, mod: require(path.join(MODULES_DIR, name)) }));
+    .flatMap(name => {
+      try {
+        return [{ name, mod: require(path.join(MODULES_DIR, name)) }];
+      } catch (err) {
+        logger.error(`Modul "${name}" konnte nicht geladen werden – wird übersprungen:`, err.message);
+        return [];
+      }
+    });
 
   return cachedModules;
 }
