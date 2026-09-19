@@ -26,6 +26,7 @@ const questionsMod = require('./questions');
 const pingRolesMod = require('./pingRoles');
 const panelBuilder = require('./panelBuilder');
 const ticketEmbed  = require('./ticketEmbed');
+const { buildTicketButtonsRow } = require('./component');
 const guards       = require('../../core/guards');
 const logger       = require('../../utils/logger');
 
@@ -282,12 +283,20 @@ module.exports = function apiRoutes(discordClient) {
 
       // Unlike the Discord-side "Übernehmen" button (which already has the
       // welcome message via its own interaction), this has to look it up by
-      // the stored tickets.welcome_message_id.
+      // the stored tickets.welcome_message_id. Rebuilds the full button row
+      // too (not just the embed) so the Discord message's own button also
+      // flips to "Freigeben" — it's the same button component.js's
+      // claim_ticket handler swaps, just reached from the web instead.
       const welcomeMsg = await fetchWelcomeMessage(discordClient, req.guildId, ticket);
       if (welcomeMsg) {
-        await ticketEmbed.refreshWelcomeEmbedStatus(welcomeMsg, {
-          ...ticket, claimed_by_id: req.user.id, claimed_by_name: `${req.user.username} (Web)`,
-        });
+        try {
+          const [oldEmbed] = welcomeMsg.embeds;
+          if (oldEmbed) {
+            const updatedTicket = { ...ticket, claimed_by_id: req.user.id, claimed_by_name: `${req.user.username} (Web)` };
+            const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
+            await welcomeMsg.edit({ embeds: [embed], components: buildTicketButtonsRow(!!ticket.on_hold_by_id, true) });
+          }
+        } catch (err) { /* best-effort — the DB change above already stuck */ }
       }
 
       await ticketLog.logTicketClaimed(discordClient, req.guildId, {

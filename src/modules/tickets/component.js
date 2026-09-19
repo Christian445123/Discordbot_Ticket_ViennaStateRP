@@ -40,24 +40,23 @@ function formatTicketNumber(ticketNumber) {
   return String(ticketNumber).padStart(3, '0');
 }
 
-// Shared by ticket creation (always starts un-held) and the "Warte auf
-// Rückmeldung" toggle handler, which rebuilds this row with the flipped
-// label/style instead of just editing the embed, so the button itself
-// reflects the current state too. Returns two rows (Discord caps a single
-// row at 5 buttons) — "Mitglied hinzufügen" gets its own row since it's the
-// one button here any ticket participant may use, not just staff.
-function buildTicketButtonsRow(onHold) {
+// Shared by ticket creation (always starts un-held/unclaimed) and the
+// "Warte auf Rückmeldung" / claim toggle handlers, which rebuild this row
+// with the flipped label/style instead of just editing the embed, so the
+// buttons themselves reflect the current state too. Returns two rows
+// (Discord caps a single row at 5 buttons) — "Mitglied hinzufügen" gets its
+// own row since it's the one button here any ticket participant may use,
+// not just staff.
+function buildTicketButtonsRow(onHold, claimed) {
   const closeBtn = new ButtonBuilder()
     .setCustomId('close_ticket')
     .setLabel('Ticket schließen')
     .setStyle(ButtonStyle.Danger)
     .setEmoji('🔒');
 
-  const claimBtn = new ButtonBuilder()
-    .setCustomId('claim_ticket')
-    .setLabel('Übernehmen')
-    .setStyle(ButtonStyle.Success)
-    .setEmoji('🖐️');
+  const claimBtn = claimed
+    ? new ButtonBuilder().setCustomId('release_ticket').setLabel('Freigeben').setStyle(ButtonStyle.Secondary).setEmoji('🔓')
+    : new ButtonBuilder().setCustomId('claim_ticket').setLabel('Übernehmen').setStyle(ButtonStyle.Success).setEmoji('🖐️');
 
   const askCloseBtn = new ButtonBuilder()
     .setCustomId('ask_close_ticket')
@@ -233,7 +232,7 @@ async function createTicketChannel(interaction, category, subject, guild = inter
     .setFooter({ text: `Ticket #${formatTicketNumber(ticketNumber)} · Support-System` })
     .setTimestamp();
 
-  const rows = buildTicketButtonsRow(false);
+  const rows = buildTicketButtonsRow(false, false);
 
   const pingMention = categoryNotify.buildPingMention(categoryCfg);
   const welcomeMsg = await channel.send({
@@ -269,9 +268,10 @@ async function createTicketChannel(interaction, category, subject, guild = inter
 // Slash-command dispatch and autocomplete are handled centrally by
 // src/core/interactionRouter.js — this only ever sees buttons/selects/
 // modals, and only reacts to the "ticket_"/"close_"/"cancel_close"/
-// "confirm_close_"/"claim_ticket"/"ask_close_ticket"/"manage_categories"/
-// "manage_categories_toggle"/"assign_ticket"/"assign_ticket_select_"/
-// "add_member_ticket"/"add_member_ticket_select" customIds it owns.
+// "confirm_close_"/"claim_ticket"/"release_ticket"/"ask_close_ticket"/
+// "manage_categories"/"manage_categories_toggle"/"assign_ticket"/
+// "assign_ticket_select_"/"add_member_ticket"/"add_member_ticket_select"
+// customIds it owns.
 async function component(interaction) {
 
     // ── Button: manage categories (lock/unlock) from the panel ──────────────
@@ -420,7 +420,10 @@ async function component(interaction) {
     // ── Button: claim ticket ─────────────────────────────────────────────────
     // "In Bearbeitung" isn't a stored status — it's status='open' with
     // claimed_by_id set (see db.js). Re-claiming (by someone else) is allowed
-    // and simply reassigns, since that's a normal "take over" use case.
+    // and simply reassigns, since that's a normal "take over" use case. Once
+    // claimed, this same button spot turns into "Freigeben" (see
+    // buildTicketButtonsRow) — whoever claimed it (or any other staff) can
+    // release it again for someone else to pick up (see release_ticket below).
     if (interaction.isButton() && interaction.customId === 'claim_ticket') {
       const ticket = await db.getTicketByChannel(interaction.channel.id);
       if (!ticket || ticket.status === 'closed') {
@@ -435,12 +438,18 @@ async function component(interaction) {
 
       await db.claimTicket(ticket.id, { claimedById: interaction.user.id, claimedByName: interaction.user.tag });
 
+      const updatedTicket = { ...ticket, claimed_by_id: interaction.user.id, claimed_by_name: interaction.user.tag };
+
       // The Claim button lives on the welcome message itself, so no lookup
       // is needed here (contrast routes.js's claim route, which has to fetch
       // it by tickets.welcome_message_id instead).
-      await ticketEmbed.refreshWelcomeEmbedStatus(interaction.message, {
-        ...ticket, claimed_by_id: interaction.user.id, claimed_by_name: interaction.user.tag,
-      });
+      try {
+        const [oldEmbed] = interaction.message.embeds;
+        if (oldEmbed) {
+          const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
+          await interaction.message.edit({ embeds: [embed], components: buildTicketButtonsRow(!!ticket.on_hold_by_id, true) });
+        }
+      } catch (err) { /* best-effort — the DB change above already stuck */ }
 
       await interaction.reply({
         content: `🖐️ ${interaction.user} hat dieses Ticket übernommen. Status: **In Bearbeitung**`,
@@ -448,6 +457,44 @@ async function component(interaction) {
 
       await ticketLog.logTicketClaimed(interaction.client, interaction.guild.id, {
         ticket, claimedByTag: interaction.user.tag, source: '🎮 Discord',
+      });
+      return;
+    }
+
+    // ── Button: release ticket ───────────────────────────────────────────────
+    // Counterpart to "Übernehmen" — puts the ticket back to unclaimed so it
+    // shows as open again and anyone (not just whoever claimed it) can pick
+    // it up. Any staff member may release, same as any staff member may claim.
+    if (interaction.isButton() && interaction.customId === 'release_ticket') {
+      const ticket = await db.getTicketByChannel(interaction.channel.id);
+      if (!ticket || ticket.status === 'closed') {
+        return interaction.reply({ content: '❌ Ticket nicht gefunden oder bereits geschlossen.', ephemeral: true });
+      }
+
+      const guildCfg    = await db.getGuild(interaction.guild.id);
+      const categoryCfg = await db.getCategoryByName(interaction.guild.id, ticket.category);
+      if (!isTicketStaff(interaction.member, guildCfg, categoryCfg)) {
+        return interaction.reply({ content: '❌ Nur Staff kann Tickets freigeben.', ephemeral: true });
+      }
+
+      await db.unclaimTicket(ticket.id);
+
+      const updatedTicket = { ...ticket, claimed_by_id: null, claimed_by_name: null };
+
+      try {
+        const [oldEmbed] = interaction.message.embeds;
+        if (oldEmbed) {
+          const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
+          await interaction.message.edit({ embeds: [embed], components: buildTicketButtonsRow(!!ticket.on_hold_by_id, false) });
+        }
+      } catch (err) { /* best-effort — the DB change above already stuck */ }
+
+      await interaction.reply({
+        content: `🔓 ${interaction.user} hat dieses Ticket freigegeben. Status: **Offen**`,
+      });
+
+      await ticketLog.logTicketReleased(interaction.client, interaction.guild.id, {
+        ticket, releasedByTag: interaction.user.tag, source: '🎮 Discord',
       });
       return;
     }
@@ -517,9 +564,14 @@ async function component(interaction) {
         ? await interaction.channel.messages.fetch(ticket.welcome_message_id).catch(() => null)
         : null;
       if (welcomeMsg) {
-        await ticketEmbed.refreshWelcomeEmbedStatus(welcomeMsg, {
-          ...ticket, claimed_by_id: target.id, claimed_by_name: target.tag,
-        });
+        try {
+          const [oldEmbed] = welcomeMsg.embeds;
+          if (oldEmbed) {
+            const updatedTicket = { ...ticket, claimed_by_id: target.id, claimed_by_name: target.tag };
+            const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
+            await welcomeMsg.edit({ embeds: [embed], components: buildTicketButtonsRow(!!ticket.on_hold_by_id, true) });
+          }
+        } catch (err) { /* best-effort — the DB change above already stuck */ }
       }
 
       await interaction.update({ content: `🎯 Ticket wurde ${target} zugewiesen.`, components: [] });
@@ -650,7 +702,7 @@ async function component(interaction) {
         const [oldEmbed] = interaction.message.embeds;
         if (oldEmbed) {
           const embed = ticketEmbed.buildStatusEmbed(oldEmbed, ticketEmbed.computeStatusText(updatedTicket));
-          await interaction.message.edit({ embeds: [embed], components: buildTicketButtonsRow(turningOn) });
+          await interaction.message.edit({ embeds: [embed], components: buildTicketButtonsRow(turningOn, !!ticket.claimed_by_id) });
         }
       } catch (err) { /* best-effort — the DB change above already stuck */ }
 
@@ -672,4 +724,4 @@ async function component(interaction) {
 // waiting room outside support hours) — it only needs a guild-context
 // interaction (interaction.guild/.user/.reply), a configured category name,
 // and a subject string, so it works unchanged from that button click too.
-module.exports = { component, createTicketChannel };
+module.exports = { component, createTicketChannel, buildTicketButtonsRow };

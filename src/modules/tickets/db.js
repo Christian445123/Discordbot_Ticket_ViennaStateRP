@@ -341,6 +341,15 @@ async function claimTicket(ticketId, { claimedById, claimedByName }) {
   );
 }
 
+// The "Freigeben" counterpart to claimTicket — puts the ticket back to
+// unclaimed so it shows as open again and anyone can pick it up.
+async function unclaimTicket(ticketId) {
+  await query(
+    'UPDATE tickets SET claimed_by_id = NULL, claimed_by_name = NULL WHERE id = :ticketId',
+    { ticketId },
+  );
+}
+
 // "Warte auf Rückmeldung" ("waiting for a reply") is likewise not a stored
 // status — it's status='open' AND on_hold_by_id set (see ticketDisplayStatus()
 // in admin.js/admin-ticket.js/routes.js), orthogonal to claimed_by_id: a
@@ -433,6 +442,7 @@ module.exports = {
   updateTicketCategory,
   closeTicket,
   claimTicket,
+  unclaimTicket,
   setTicketOnHold,
   clearTicketOnHold,
   getStats,

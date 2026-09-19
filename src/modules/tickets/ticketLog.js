@@ -123,6 +123,21 @@ async function logTicketClaimed(discordClient, guildId, { ticket, claimedByTag, 
   await dispatch(discordClient, guildId, TICKET_WEBHOOK, { embeds: [embed] });
 }
 
+async function logTicketReleased(discordClient, guildId, { ticket, releasedByTag, source }) {
+  const embed = new EmbedBuilder()
+    .setTitle('🔓 Ticket freigegeben')
+    .setColor(0x5865F2)
+    .addFields(
+      { name: 'Server',         value: guildName(discordClient, guildId), inline: true },
+      { name: 'Ticket-Nr.',     value: formatTicketRef(ticket),           inline: true },
+      { name: 'Freigegeben von', value: releasedByTag,                    inline: true },
+      { name: 'Quelle',         value: source || '🎮 Discord',            inline: true },
+    )
+    .setTimestamp();
+
+  await dispatch(discordClient, guildId, TICKET_WEBHOOK, { embeds: [embed] });
+}
+
 async function logTicketHoldChanged(discordClient, guildId, { ticket, changedByTag, onHold, source }) {
   const embed = new EmbedBuilder()
     .setTitle(onHold ? '⏸️ Warte auf Rückmeldung gesetzt' : '▶️ Warte-Status aufgehoben')
@@ -200,6 +215,6 @@ async function logSystemAction(discordClient, guildId, { title, description, col
 }
 
 module.exports = {
-  logTicketCreated, logTicketClosed, logNoteAdded, logTicketClaimed, logTicketHoldChanged,
+  logTicketCreated, logTicketClosed, logNoteAdded, logTicketClaimed, logTicketReleased, logTicketHoldChanged,
   logMemberAdded, logCategoryChanged, logCategoryConfigChanged, logSystemAction,
 };
