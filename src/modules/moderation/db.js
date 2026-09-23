@@ -22,11 +22,13 @@ async function initSchema(p) {
       invite_block_enabled TINYINT(1) DEFAULT 0,
       everyone_mention_enabled TINYINT(1) DEFAULT 1,
       exempt_role_ids      TEXT,
+      moderator_role_ids   TEXT,
       next_case_number     INT DEFAULT 1
     ) ENGINE=InnoDB
   `);
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS everyone_mention_enabled TINYINT(1) DEFAULT 1`).catch(() => {});
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS exempt_role_ids TEXT`).catch(() => {});
+  await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS moderator_role_ids TEXT`).catch(() => {});
 
   // Every moderation action (manual or automatic) gets its own row and a
   // per-guild case number — "revoked" is reused for two related meanings

@@ -748,6 +748,14 @@ async function loadModerationChannelOptions() {
           <label class="form-check-label small" for="modExemptRole-${r.id}">${escapeHtml(r.name)}</label>
         </div>`).join('')
     : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
+
+  document.getElementById('modModeratorRoles').innerHTML = roles.length
+    ? roles.map(r => `
+        <div class="form-check">
+          <input class="form-check-input mod-moderator-role-checkbox" type="checkbox" value="${r.id}" id="modModeratorRole-${r.id}" />
+          <label class="form-check-label small" for="modModeratorRole-${r.id}">${escapeHtml(r.name)}</label>
+        </div>`).join('')
+    : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
 }
 
 function setExemptRoleCheckboxes(roleIds) {
@@ -759,6 +767,40 @@ function setExemptRoleCheckboxes(roleIds) {
 
 function collectExemptRoleIds() {
   return Array.from(document.querySelectorAll('#modExemptRoles .mod-exempt-role-checkbox:checked')).map(cb => cb.value);
+}
+
+function setModeratorRoleCheckboxes(roleIds) {
+  const set = new Set(roleIds || []);
+  document.querySelectorAll('#modModeratorRoles .mod-moderator-role-checkbox').forEach(cb => {
+    cb.checked = set.has(cb.value);
+  });
+}
+
+function collectModeratorRoleIds() {
+  return Array.from(document.querySelectorAll('#modModeratorRoles .mod-moderator-role-checkbox:checked')).map(cb => cb.value);
+}
+
+async function saveModeratorRoles() {
+  const alertEl = document.getElementById('modAccessAlert');
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/moderation', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moderator_role_ids: collectModeratorRoleIds() }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
 }
 
 function escalationRowHtml(rule) {
@@ -823,6 +865,7 @@ async function loadModerationSettings() {
   document.getElementById('modInviteEnabled').checked  = !!data.invite_block_enabled;
   document.getElementById('modEveryoneEnabled').checked = !!data.everyone_mention_enabled;
   setExemptRoleCheckboxes(data.exempt_role_ids);
+  setModeratorRoleCheckboxes(data.moderator_role_ids);
 
   renderEscalationRows(data.escalation_rules);
   await Promise.all([loadModerationCases(), loadModerationMembers()]);

@@ -21,6 +21,21 @@ function parseDurationMinutes(input) {
 
 const DISCORD_TIMEOUT_MAX_MINUTES = 28 * 24 * 60; // Discord's own hard cap
 
+// /mod has no setDefaultMemberPermissions gate (see below) — visibility and
+// authorization are both handled here instead, against the web-panel-
+// configured moderator_role_ids, so access is tied to a specific role the
+// admin picks (e.g. "Team"/"High Team") rather than Discord's generic
+// "Moderate Members" permission, which this server's staff roles may or
+// may not actually have. Administrator is always allowed, same convention
+// as isTicketStaff/isStaffMember elsewhere in this bot.
+function isModerator(member, cfg) {
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+
+  let moderatorRoleIds;
+  try { moderatorRoleIds = JSON.parse(cfg?.moderator_role_ids || '[]'); } catch { moderatorRoleIds = []; }
+  return moderatorRoleIds.some(roleId => member.roles.cache.has(roleId));
+}
+
 function actionReplyEmbed(title, caseRow, extra) {
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -40,7 +55,10 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('mod')
     .setDescription('Moderationswerkzeuge (nur Team)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    // Deliberately no setDefaultMemberPermissions() — every guild member
+    // can see /mod in their command list, but execute() below rejects
+    // anyone without the web-panel-configured moderator role (or
+    // Administrator) before any subcommand logic runs.
     .addSubcommand(sub => sub
       .setName('warn')
       .setDescription('Verwarnt einen Nutzer')
@@ -103,6 +121,11 @@ module.exports = {
     const guildId = interaction.guild.id;
     const guild   = interaction.guild;
     await db.ensureGuild(guildId);
+
+    const cfg = await db.getConfig(guildId);
+    if (!isModerator(interaction.member, cfg)) {
+      return interaction.reply({ content: '❌ Du hast keine Berechtigung, diesen Befehl zu nutzen.', ephemeral: true });
+    }
 
     const moderatorId   = interaction.user.id;
     const moderatorName = interaction.user.tag;
@@ -270,13 +293,13 @@ module.exports = {
     if (honeypotChannel) updates.honeypot_channel_id = honeypotChannel.id;
     if (Object.keys(updates).length) await db.updateConfig(guildId, updates);
 
-    const cfg = await db.getConfig(guildId);
+    const updatedCfg = await db.getConfig(guildId);
     const embed = new EmbedBuilder()
       .setTitle('✅ Moderation eingerichtet')
       .setColor(0x57F287)
       .addFields(
-        { name: 'Log-Kanal',       value: cfg.log_channel_id ? `<#${cfg.log_channel_id}>` : 'Nicht gesetzt', inline: true },
-        { name: 'Honeypot-Kanal',  value: cfg.honeypot_channel_id ? `<#${cfg.honeypot_channel_id}>` : 'Nicht gesetzt', inline: true },
+        { name: 'Log-Kanal',       value: updatedCfg.log_channel_id ? `<#${updatedCfg.log_channel_id}>` : 'Nicht gesetzt', inline: true },
+        { name: 'Honeypot-Kanal',  value: updatedCfg.honeypot_channel_id ? `<#${updatedCfg.honeypot_channel_id}>` : 'Nicht gesetzt', inline: true },
       )
       .setDescription('Automod-Filter und Eskalationsregeln werden im Webpanel (Tab „Moderation“) konfiguriert.');
     return interaction.reply({ embeds: [embed], ephemeral: true });
