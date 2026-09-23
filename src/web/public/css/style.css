@@ -125,6 +125,12 @@ a:focus-visible {
   border-color: var(--accent) !important;
 }
 .form-control::placeholder { color: var(--muted); opacity: .8; }
+
+/* Bootstrap's own .form-check-label reads its color from --bs-body-color,
+   which defaults to a dark, light-theme color since this page never sets
+   data-bs-theme="dark" — nearly unreadable on this dark panel (e.g. the
+   role-checkbox lists). Force the theme's own light text color instead. */
+.form-check-label { color: var(--text) !important; }
 .form-select option { background-color: var(--bg-card); color: var(--text); }
 
 /* ── Table ───────────────────────────────────────────────────────────────── */
