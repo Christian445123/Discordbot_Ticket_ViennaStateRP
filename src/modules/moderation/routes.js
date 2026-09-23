@@ -174,7 +174,7 @@ module.exports = function moderationRoutes(discordClient) {
           const activeWarns = Number(caseCounts?.active_warns || 0);
           const kicks       = Number(caseCounts?.kicks || 0);
           const bans        = Number(caseCounts?.bans || 0);
-          const { score, label } = risk.computeRisk({ activeWarns, kicks, bans, accountAgeDays, joinAgeDays });
+          const { score, tier, label } = risk.computeRisk({ activeWarns, kicks, bans, accountAgeDays, joinAgeDays });
 
           return {
             user_id:            m.id,
@@ -187,6 +187,7 @@ module.exports = function moderationRoutes(discordClient) {
             kicks,
             bans,
             risk_score:         score,
+            risk_tier:          tier,
             risk_label:         label,
           };
         })

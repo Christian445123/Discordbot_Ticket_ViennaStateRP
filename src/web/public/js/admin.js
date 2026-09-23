@@ -904,10 +904,12 @@ function formatAge(days) {
   return `${Math.floor(days / 365)} Jahr(e)`;
 }
 
-function riskRowClass(score) {
-  if (score >= 80) return 'table-danger';
-  if (score >= 50) return '';
-  return '';
+const RISK_BADGE_CLASSES = {
+  low: 'badge-load-green', medium: 'badge-load-yellow', high: 'badge-load-red', critical: 'badge-load-violet',
+};
+
+function riskRowClass(tier) {
+  return tier === 'critical' ? 'risk-row-critical' : '';
 }
 
 async function loadModerationMembers() {
@@ -924,8 +926,9 @@ async function loadModerationMembers() {
   tbody.innerHTML = members.map(m => {
     const accountAgeDays = Math.floor((now - new Date(m.account_created_at).getTime()) / 86400000);
     const joinAgeDays    = m.joined_at ? Math.floor((now - new Date(m.joined_at).getTime()) / 86400000) : null;
+    const badgeClass = RISK_BADGE_CLASSES[m.risk_tier] || 'badge-load-green';
     return `
-      <tr class="${riskRowClass(m.risk_score)}">
+      <tr class="${riskRowClass(m.risk_tier)}">
         <td>${escapeHtml(m.username)}</td>
         <td>${m.message_count}</td>
         <td>${m.last_message_at ? formatDate(m.last_message_at) : '–'}</td>
@@ -934,7 +937,7 @@ async function loadModerationMembers() {
         <td>${m.bans}</td>
         <td>${formatAge(accountAgeDays)}</td>
         <td>${formatAge(joinAgeDays)}</td>
-        <td><span class="ticket-badge">${m.risk_label} (${m.risk_score})</span></td>
+        <td><span class="ticket-badge ${badgeClass}">${m.risk_label} (${m.risk_score})</span></td>
       </tr>`;
   }).join('');
 }

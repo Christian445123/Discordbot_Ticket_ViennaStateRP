@@ -169,6 +169,13 @@ a:focus-visible {
 .badge-load-red    { background-color: rgba(237,66,69,.15);   color: #ed4245; }
 .badge-load-violet { background-color: rgba(155,89,182,.18);  color: #9b59b6; }
 
+/* Row highlight for critical-risk members (Moderation → Mitgliederübersicht)
+   — a tinted background only, no forced text color, so it keeps whatever
+   light text color the surrounding table-dark table already uses. Bootstrap's
+   own .table-danger sets a light background AND dark text for light themes,
+   which reads as unreadable black-on-gray inside this dark panel. */
+.risk-row-critical > * { background-color: rgba(237,66,69,.12) !important; }
+
 .ticket-badge {
   display: inline-block;
   padding: .2em .55em;
