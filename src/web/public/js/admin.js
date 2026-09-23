@@ -567,6 +567,41 @@ async function loadVoiceSupportChannelOptions() {
   document.getElementById('voiceTicketCategory').innerHTML =
     '<option value="">Nicht gesetzt</option>' +
     categories.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.emoji || '')} ${escapeHtml(c.name)}</option>`).join('');
+
+  document.getElementById('restrictedRoleSelect').innerHTML =
+    '<option value="">Keine – keine Einschränkung aktiv</option>' +
+    roles.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+}
+
+async function loadRestrictedRole() {
+  const res = await apiFetch('/api/admin/restricted-role');
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('restrictedRoleSelect').value = data.restricted_role_id || '';
+}
+
+async function saveRestrictedRole() {
+  const alertEl = document.getElementById('restrictedRoleAlert');
+  const payload = { restricted_role_id: document.getElementById('restrictedRoleSelect').value || null };
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/restricted-role', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
 }
 
 function renderVoiceHoursRows(days) {
@@ -594,6 +629,7 @@ function renderVoiceHoursRows(days) {
 
 async function loadVoiceSupportSettings() {
   await loadVoiceSupportChannelOptions();
+  await loadRestrictedRole();
 
   const res = await apiFetch('/api/admin/voice-support');
   if (!res.ok) return;

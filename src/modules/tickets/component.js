@@ -20,6 +20,11 @@ const pingRoles      = require('./pingRoles');
 const { isTicketStaff } = require('./staffCheck');
 const ticketEmbed = require('./ticketEmbed');
 const panelBuilder = require('./panelBuilder');
+// Only for reading the already-configured "Supportticket" category name
+// (voice_support_guilds.ticket_category) — see checkRestrictedRoleGate()
+// below. voiceSupport/db.js has no requires of its own back into tickets/,
+// so this doesn't create a require cycle.
+const voiceSupportDb = require('../voiceSupport/db');
 
 // Discord channel names only allow lowercase letters/digits/hyphens (it
 // silently strips/mangles anything else), so a category name like "Bewerbung"
@@ -34,6 +39,37 @@ function slugifyCategoryName(name) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'ticket';
+}
+
+// Web-panel-configured restricted role (guilds.restricted_role_id): a
+// member with this role can't use Voice-Support at all (see
+// voiceSupport/waitRoom.js) and, in the ticket panel, may only open the
+// one category already set as the Voice-Support "Supportticket" category
+// (voice_support_guilds.ticket_category — reused here instead of making an
+// admin configure the same category twice), and only once every 24h.
+// Returns an error message to show the user, or null if they're clear to
+// proceed (always null for anyone without the restricted role, or when no
+// restricted role is configured at all).
+async function checkRestrictedRoleGate(guild, member, category) {
+  const guildCfg = await db.getGuild(guild.id);
+  if (!guildCfg?.restricted_role_id || !member?.roles.cache.has(guildCfg.restricted_role_id)) return null;
+
+  const voiceSupportCfg = await voiceSupportDb.getConfig(guild.id);
+  const allowedCategory = voiceSupportCfg?.ticket_category;
+
+  if (!allowedCategory) {
+    return '❌ Deine Rolle ist auf eine Support-Ticket-Kategorie beschränkt, die aber noch nicht eingerichtet wurde. Bitte einen Admin kontaktieren.';
+  }
+  if (category !== allowedCategory) {
+    return `❌ Mit deiner Rolle kannst du nur die Kategorie **${allowedCategory}** nutzen.`;
+  }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recentCount = await db.getTicketCountByUserCategorySince(guild.id, member.id, category, since);
+  if (recentCount > 0) {
+    return `❌ Mit deiner Rolle kannst du die Kategorie **${allowedCategory}** nur 1x pro Tag nutzen. Bitte versuche es später erneut.`;
+  }
+  return null;
 }
 
 function formatTicketNumber(ticketNumber) {
@@ -141,6 +177,18 @@ async function createTicketChannel(interaction, category, subject, guild = inter
   const { user } = interaction;
 
   await db.ensureGuildWithDefaults(guild.id);
+
+  // Defensive re-check: the panel's select-menu handler already checks this
+  // (see checkRestrictedRoleGate above) before the user even fills out the
+  // modal, but createTicketChannel is also reached directly from the DM
+  // "Supportticket erstellen" button (voiceSupport/component.js), which
+  // never goes through that handler — interaction.member is null there
+  // (DM interactions have no guild member), so fetch it explicitly.
+  const member = interaction.member ?? await guild.members.fetch(user.id).catch(() => null);
+  const restrictionError = await checkRestrictedRoleGate(guild, member, category);
+  if (restrictionError) {
+    return interaction.reply({ content: restrictionError, ephemeral: true });
+  }
 
   const categoryCfg = await db.getCategoryByName(guild.id, category);
 
@@ -334,6 +382,11 @@ async function component(interaction) {
           content: `🔒 Die Kategorie **${category}** ist derzeit gesperrt. Es können keine neuen Tickets erstellt werden.`,
           ephemeral: true,
         });
+      }
+
+      const restrictionError = await checkRestrictedRoleGate(interaction.guild, interaction.member, category);
+      if (restrictionError) {
+        return interaction.reply({ content: restrictionError, ephemeral: true });
       }
 
       const qs           = questions.resolveQuestions(categoryCfg);

@@ -617,5 +617,30 @@ module.exports = function apiRoutes(discordClient) {
     }
   });
 
+  // ── Restricted role (limited to one ticket category, 1x/day, no Voice-Support) ──
+  router.get('/admin/restricted-role', async (req, res) => {
+    try {
+      const guildId = req.guildId;
+      await db.ensureGuildWithDefaults(guildId);
+      const guildCfg = await db.getGuild(guildId);
+      res.json({ restricted_role_id: guildCfg?.restricted_role_id || null });
+    } catch (err) {
+      logger.error('Eingeschränkte Rolle laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Eingeschränkte Rolle konnte nicht geladen werden' });
+    }
+  });
+
+  router.put('/admin/restricted-role', async (req, res) => {
+    try {
+      const guildId = req.guildId;
+      await db.ensureGuildWithDefaults(guildId);
+      await db.updateGuild(guildId, { restricted_role_id: req.body.restricted_role_id || null });
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Eingeschränkte Rolle speichern fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Eingeschränkte Rolle konnte nicht gespeichert werden' });
+    }
+  });
+
   return router;
 };

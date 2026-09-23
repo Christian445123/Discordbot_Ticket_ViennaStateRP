@@ -10,6 +10,7 @@ const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, PermissionFl
 const db      = require('./db');
 const session = require('./session');
 const hours   = require('./hours');
+const ticketsDb = require('../tickets/db');
 const logger  = require('../../utils/logger');
 
 // The closed-notice is a DM, which has no guild context of its own — the
@@ -35,6 +36,25 @@ function countWaitingNonStaff(channel, cfg) {
 
 function staffAlreadyPresent(channel, cfg, exceptMemberId) {
   return channel.members.some(m => m.id !== exceptMemberId && !m.user.bot && isStaffMember(m, cfg));
+}
+
+// The web-panel-configured restricted role (tickets guilds.restricted_role_id,
+// see tickets/component.js's checkRestrictedRoleGate) is locked out of
+// Voice-Support entirely — unconditionally, whether support is currently
+// open or closed — not just rate-limited like the ticket side.
+async function isRoleRestricted(guildId, member) {
+  const ticketsCfg = await ticketsDb.getGuild(guildId);
+  return !!(ticketsCfg?.restricted_role_id && member.roles.cache.has(ticketsCfg.restricted_role_id));
+}
+
+function buildTicketButtonRow(guildId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${CREATE_TICKET_BUTTON_PREFIX}${guildId}`)
+      .setLabel('Supportticket erstellen')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🎫'),
+  );
 }
 
 async function sendWaitNotification(client, guildId, cfg, member, channel) {
@@ -94,13 +114,7 @@ async function sendClosedNotice(guildId, cfg, member, channel) {
     .addFields({ name: `Supportzeiten (${hours.TIMEZONE})`, value: hours.formatWeeklySummary(hourRows) })
     .setTimestamp();
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${CREATE_TICKET_BUTTON_PREFIX}${guildId}`)
-      .setLabel('Supportticket erstellen')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('🎫'),
-  );
+  const row = buildTicketButtonRow(guildId);
 
   try {
     await member.send({ embeds: [embed], components: [row] });
@@ -112,12 +126,38 @@ async function sendClosedNotice(guildId, cfg, member, channel) {
   }
 }
 
+// Sent as a DM when a restricted-role member joins the waiting room — no
+// hold music, no notification, no staff-presence checks at all, since this
+// role can't use Voice-Support regardless of open/closed status. Same
+// ticket button as sendClosedNotice, since the restricted role's one
+// permitted path is the same "Supportticket" category.
+async function sendRestrictedNotice(guildId, member, channel) {
+  const embed = new EmbedBuilder()
+    .setTitle('🚫 Voice-Support nicht verfügbar')
+    .setDescription('Mit deiner Rolle kannst du den Voice-Support nicht nutzen. Du kannst stattdessen ein Supportticket erstellen (1x pro Tag möglich).')
+    .setColor(0xED4245)
+    .setTimestamp();
+
+  const row = buildTicketButtonRow(guildId);
+
+  try {
+    await member.send({ embeds: [embed], components: [row] });
+  } catch (err) {
+    logger.warn(`Voice-Support: DM an ${member.user.tag} nicht zustellbar (${err.message}), weiche auf den Warteraum-Chat aus.`);
+    await channel.send({ content: `${member}`, embeds: [embed], components: [row] }).catch(err2 => {
+      logger.error('Voice-Support: Einschränkungs-Hinweis konnte auch im Warteraum-Chat nicht gesendet werden:', err2.message);
+    });
+  }
+}
+
 module.exports = {
   CREATE_TICKET_BUTTON_PREFIX,
   isStaffMember,
+  isRoleRestricted,
   countWaitingNonStaff,
   staffAlreadyPresent,
   sendWaitNotification,
   startIfWaiting,
   sendClosedNotice,
+  sendRestrictedNotice,
 };

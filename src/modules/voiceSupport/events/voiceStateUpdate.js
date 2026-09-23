@@ -29,6 +29,17 @@ async function execute(oldState, newState) {
 
   if (joinedWaitingRoom) {
     logger.info(`Voice-Support: ${member.user.tag} ist dem Warteraum in Guild ${guildId} beigetreten.`);
+
+    // The restricted role (configured in the Ticket-System web panel) is
+    // locked out of Voice-Support entirely — unconditionally, before even
+    // the staff/existing-session/open-closed checks below, since this rule
+    // overrides everything else.
+    if (await waitRoom.isRoleRestricted(guildId, member)) {
+      logger.info(`Voice-Support: ${member.user.tag} hat die eingeschränkte Rolle – sende Hinweis statt Voice-Support.`);
+      await waitRoom.sendRestrictedNotice(guildId, member, newState.channel);
+      return;
+    }
+
     const existing = session.getSession(guildId);
 
     if (waitRoom.isStaffMember(member, cfg)) {

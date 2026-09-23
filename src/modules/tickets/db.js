@@ -20,9 +20,12 @@ async function initSchema(p) {
       panel_message_id   VARCHAR(32),
       panel_image_url    TEXT,
       panel_description  TEXT,
-      ticket_count       INT DEFAULT 0
+      ticket_count       INT DEFAULT 0,
+      restricted_role_id VARCHAR(32)
     ) ENGINE=InnoDB
   `);
+  // Migrations: add columns introduced after the initial release
+  await p.query(`ALTER TABLE guilds ADD COLUMN IF NOT EXISTS restricted_role_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -311,6 +314,17 @@ async function getOpenTicketsByUser(guildId, userId) {
   );
 }
 
+// Counts tickets of any status (open or already closed) — the restricted-
+// role once-per-day limit (see component.js) cares about how many times
+// someone opened this category today, not whether that ticket is still open.
+async function getTicketCountByUserCategorySince(guildId, userId, category, since) {
+  const rows = await query(
+    'SELECT COUNT(*) AS count FROM tickets WHERE guild_id = :guildId AND user_id = :userId AND category = :category AND created_at >= :since',
+    { guildId, userId, category, since },
+  );
+  return rows[0].count;
+}
+
 async function updateTicketChannel(channelId, ticketId) {
   await query('UPDATE tickets SET channel_id = :channelId WHERE id = :ticketId', { channelId, ticketId });
 }
@@ -447,6 +461,7 @@ module.exports = {
   getTicketsByGuild,
   getOpenTicketsByUserAndCategory,
   getOpenTicketsByUser,
+  getTicketCountByUserCategorySince,
   updateTicketChannel,
   updateTicketWelcomeMessage,
   updateTicketCategory,
