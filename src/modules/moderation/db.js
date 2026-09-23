@@ -67,6 +67,9 @@ async function initSchema(p) {
   // One row per member who has ever sent a message — account age and join
   // date come live from Discord (guild.members.fetch()), not stored here;
   // this table only tracks what Discord itself doesn't remember for us.
+  // honeypot_count persists across leaves/rejoins on purpose — the honeypot
+  // escalation ladder (timeout → kick → ban, see automod.js) must not reset
+  // just because someone got kicked and came back.
   await p.query(`
     CREATE TABLE IF NOT EXISTS moderation_activity (
       guild_id         VARCHAR(32) NOT NULL,
@@ -74,9 +77,11 @@ async function initSchema(p) {
       username         VARCHAR(150) NOT NULL,
       message_count    INT DEFAULT 0,
       last_message_at  DATETIME NULL,
+      honeypot_count   INT DEFAULT 0,
       PRIMARY KEY (guild_id, user_id)
     ) ENGINE=InnoDB
   `);
+  await p.query(`ALTER TABLE moderation_activity ADD COLUMN IF NOT EXISTS honeypot_count INT DEFAULT 0`).catch(() => {});
 }
 
 async function ensureGuild(guildId) {
@@ -225,6 +230,21 @@ async function getActivity(guildId) {
   return query('SELECT * FROM moderation_activity WHERE guild_id = :guildId', { guildId });
 }
 
+// Returns the new count after incrementing, so the caller can decide which
+// honeypot escalation stage (timeout/kick/ban) applies this time.
+async function incrementHoneypotCount(guildId, userId, username) {
+  await query(`
+    INSERT INTO moderation_activity (guild_id, user_id, username, honeypot_count)
+    VALUES (:guildId, :userId, :username, 1)
+    ON DUPLICATE KEY UPDATE honeypot_count = honeypot_count + 1, username = :username
+  `, { guildId, userId, username });
+  const rows = await query(
+    'SELECT honeypot_count FROM moderation_activity WHERE guild_id = :guildId AND user_id = :userId',
+    { guildId, userId },
+  );
+  return rows[0].honeypot_count;
+}
+
 async function getCaseCountsByUser(guildId) {
   return query(`
     SELECT
@@ -244,5 +264,5 @@ module.exports = {
   getActiveWarnCount, getActiveWarnings, revokeWarning,
   getExpiredTempbans, markTempbanProcessed,
   getEscalationRules, getEscalationRuleForThreshold, setEscalationRules,
-  recordActivity, getActivity, getCaseCountsByUser,
+  recordActivity, getActivity, incrementHoneypotCount, getCaseCountsByUser,
 };

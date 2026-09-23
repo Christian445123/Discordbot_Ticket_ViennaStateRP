@@ -44,23 +44,38 @@ function findBannedWord(content, wordsJson) {
   return words.find(w => w && lower.includes(w.toLowerCase())) || null;
 }
 
+const HONEYPOT_TIMEOUT_MINUTES = 10 * 24 * 60; // 10 Tage
+
 // Any message in the configured honeypot channel is treated as a bot/
 // self-bot giveaway — a real human has no reason to ever post there (it's
-// not linked anywhere, not part of normal navigation) — instant ban, no
-// warning, no escalation, no automod checks below.
+// not linked anywhere, not part of normal navigation). Staged response
+// instead of an instant ban: 1st time → 10 Tage Timeout, 2nd time → Kick,
+// 3rd time (and every time after) → Bann. The count persists per user
+// across leaves/rejoins (see db.incrementHoneypotCount), so kicking and
+// coming back to trip it again still escalates to a ban, not a fresh
+// timeout. No warning/escalation-ladder involvement — this is its own,
+// separate ladder.
 async function handleHoneypot(message, cfg) {
   if (!cfg.honeypot_channel_id || message.channel.id !== cfg.honeypot_channel_id) return false;
 
   await message.delete().catch(() => {});
+
+  const count  = await db.incrementHoneypotCount(message.guild.id, message.author.id, message.author.tag);
+  const reason = `Verdacht auf Bot-Nutzung (Honeypot-Kanal, ${count}. Auffälligkeit).`;
+
   try {
-    await actions.ban(
-      message.client, message.guild, message.author,
-      'Automatisch gebannt: Nachricht im Honeypot-Kanal (Verdacht auf Bot-Nutzung).',
-      null, 'System (Honeypot)',
-    );
-    logger.info(`Moderation: ${message.author.tag} automatisch gebannt (Honeypot-Kanal, Guild ${message.guild.id}).`);
+    if (count === 1) {
+      await actions.timeout(message.client, message.guild, message.author, HONEYPOT_TIMEOUT_MINUTES, reason, null, 'System (Honeypot)');
+      logger.info(`Moderation: ${message.author.tag} automatisch in 10-Tage-Timeout versetzt (Honeypot, 1. Mal, Guild ${message.guild.id}).`);
+    } else if (count === 2) {
+      await actions.kick(message.client, message.guild, message.author, reason, null, 'System (Honeypot)');
+      logger.info(`Moderation: ${message.author.tag} automatisch gekickt (Honeypot, 2. Mal, Guild ${message.guild.id}).`);
+    } else {
+      await actions.ban(message.client, message.guild, message.author, reason, null, 'System (Honeypot)');
+      logger.info(`Moderation: ${message.author.tag} automatisch gebannt (Honeypot, ${count}. Mal, Guild ${message.guild.id}).`);
+    }
   } catch (err) {
-    logger.error('Moderation: Honeypot-Bann fehlgeschlagen:', err.message);
+    logger.error('Moderation: Honeypot-Aktion fehlgeschlagen:', err.message);
   }
   return true;
 }
