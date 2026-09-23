@@ -693,12 +693,36 @@ const MOD_ACTION_LABELS = {
 };
 
 async function loadModerationChannelOptions() {
-  const res = await apiFetch('/api/admin/moderation/channels');
-  const channels = res.ok ? await res.json() : [];
+  const [channelsRes, rolesRes] = await Promise.all([
+    apiFetch('/api/admin/moderation/channels'),
+    apiFetch('/api/admin/guild-roles'),
+  ]);
+  const channels = channelsRes.ok ? await channelsRes.json() : [];
+  const roles    = rolesRes.ok    ? await rolesRes.json()    : [];
+
   const optionsHtml = '<option value="">Kein Kanal ausgewählt</option>' +
     channels.map(c => `<option value="${c.id}">#${escapeHtml(c.name)}</option>`).join('');
   document.getElementById('modLogChannel').innerHTML = optionsHtml;
   document.getElementById('modHoneypotChannel').innerHTML = optionsHtml;
+
+  document.getElementById('modExemptRoles').innerHTML = roles.length
+    ? roles.map(r => `
+        <div class="form-check">
+          <input class="form-check-input mod-exempt-role-checkbox" type="checkbox" value="${r.id}" id="modExemptRole-${r.id}" />
+          <label class="form-check-label small" for="modExemptRole-${r.id}">${escapeHtml(r.name)}</label>
+        </div>`).join('')
+    : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
+}
+
+function setExemptRoleCheckboxes(roleIds) {
+  const set = new Set(roleIds || []);
+  document.querySelectorAll('#modExemptRoles .mod-exempt-role-checkbox').forEach(cb => {
+    cb.checked = set.has(cb.value);
+  });
+}
+
+function collectExemptRoleIds() {
+  return Array.from(document.querySelectorAll('#modExemptRoles .mod-exempt-role-checkbox:checked')).map(cb => cb.value);
 }
 
 function escalationRowHtml(rule) {
@@ -761,9 +785,11 @@ async function loadModerationSettings() {
   document.getElementById('modMentionEnabled').checked = !!data.mention_enabled;
   document.getElementById('modMentionLimit').value     = data.mention_limit;
   document.getElementById('modInviteEnabled').checked  = !!data.invite_block_enabled;
+  document.getElementById('modEveryoneEnabled').checked = !!data.everyone_mention_enabled;
+  setExemptRoleCheckboxes(data.exempt_role_ids);
 
   renderEscalationRows(data.escalation_rules);
-  await loadModerationCases();
+  await Promise.all([loadModerationCases(), loadModerationMembers()]);
 }
 
 async function saveModerationConfig() {
@@ -781,6 +807,8 @@ async function saveModerationConfig() {
     mention_enabled:      document.getElementById('modMentionEnabled').checked ? 1 : 0,
     mention_limit:        Number(document.getElementById('modMentionLimit').value) || 5,
     invite_block_enabled: document.getElementById('modInviteEnabled').checked ? 1 : 0,
+    everyone_mention_enabled: document.getElementById('modEveryoneEnabled').checked ? 1 : 0,
+    exempt_role_ids:      collectExemptRoleIds(),
   };
 
   alertEl.className   = 'alert alert-info';
@@ -866,6 +894,49 @@ async function loadModerationCases() {
       <td>${escapeHtml(c.reason || '—')}</td>
       <td>${formatDate(c.created_at)}</td>
     </tr>`).join('');
+}
+
+function formatAge(days) {
+  if (days == null) return '–';
+  if (days < 1) return 'heute';
+  if (days < 31) return `${days} Tag(e)`;
+  if (days < 365) return `${Math.floor(days / 30)} Monat(e)`;
+  return `${Math.floor(days / 365)} Jahr(e)`;
+}
+
+function riskRowClass(score) {
+  if (score >= 80) return 'table-danger';
+  if (score >= 50) return '';
+  return '';
+}
+
+async function loadModerationMembers() {
+  const tbody = document.getElementById('modMembersTableBody');
+  const res = await apiFetch('/api/admin/moderation/members');
+  const members = res.ok ? await res.json() : [];
+
+  if (!members.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">Keine Mitglieder gefunden.</td></tr>';
+    return;
+  }
+
+  const now = Date.now();
+  tbody.innerHTML = members.map(m => {
+    const accountAgeDays = Math.floor((now - new Date(m.account_created_at).getTime()) / 86400000);
+    const joinAgeDays    = m.joined_at ? Math.floor((now - new Date(m.joined_at).getTime()) / 86400000) : null;
+    return `
+      <tr class="${riskRowClass(m.risk_score)}">
+        <td>${escapeHtml(m.username)}</td>
+        <td>${m.message_count}</td>
+        <td>${m.last_message_at ? formatDate(m.last_message_at) : '–'}</td>
+        <td>${m.active_warns}</td>
+        <td>${m.kicks}</td>
+        <td>${m.bans}</td>
+        <td>${formatAge(accountAgeDays)}</td>
+        <td>${formatAge(joinAgeDays)}</td>
+        <td><span class="ticket-badge">${m.risk_label} (${m.risk_score})</span></td>
+      </tr>`;
+  }).join('');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

@@ -278,6 +278,13 @@
                 </select>
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label text-muted small">Ausnahme-Rollen <span class="text-muted">(diese Rollen werden von Automod nie automatisch verwarnt/bestraft — beliebig viele wählbar)</span></label>
+              <div id="modExemptRoles" class="border rounded p-2" style="max-height:180px;overflow-y:auto;"></div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="saveModerationConfig()">
+              <i class="bi bi-check-lg me-1"></i>Speichern
+            </button>
           </div>
         </div>
 
@@ -320,9 +327,14 @@
               </div>
             </div>
 
-            <div class="form-check form-switch mb-3">
+            <div class="form-check form-switch mb-2">
               <input class="form-check-input" type="checkbox" id="modInviteEnabled" />
               <label class="form-check-label" for="modInviteEnabled">Einladungslinks zu anderen Servern blocken</label>
+            </div>
+
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="modEveryoneEnabled" />
+              <label class="form-check-label" for="modEveryoneEnabled">@everyone/@here-Erwähnungen automatisch verwarnen</label>
             </div>
 
             <button class="btn btn-primary btn-sm" onclick="saveModerationConfig()">
@@ -363,6 +375,34 @@
                 </thead>
                 <tbody id="modCasesTableBody">
                   <tr><td colspan="6" class="text-center text-muted py-4">Lade…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-dark-card border-0 shadow-sm mt-4">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h6 class="fw-semibold mb-0"><i class="bi bi-person-lines-fill text-primary me-2"></i>Mitglieder-Aktivität &amp; Risikoeinstufung</h6>
+              <button class="btn btn-sm btn-outline-secondary" onclick="loadModerationMembers()">
+                <i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren
+              </button>
+            </div>
+            <p class="text-muted small">
+              Alle Mitglieder (ohne Bots), sortiert nach Risiko. Score aus aktiven Verwarnungen, Kicks/Bans,
+              Konto-Alter und ob bereits kurz nach dem Beitritt Ärger gemacht wurde.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-dark table-hover align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>Nutzer</th><th>Nachrichten</th><th>Zuletzt aktiv</th><th>Warns</th><th>Kicks</th><th>Bans</th>
+                    <th>Konto-Alter</th><th>Beigetreten</th><th>Risiko</th>
+                  </tr>
+                </thead>
+                <tbody id="modMembersTableBody">
+                  <tr><td colspan="9" class="text-center text-muted py-4">Lade…</td></tr>
                 </tbody>
               </table>
             </div>

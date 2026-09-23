@@ -20,9 +20,13 @@ async function initSchema(p) {
       mention_enabled      TINYINT(1) DEFAULT 0,
       mention_limit        INT DEFAULT 5,
       invite_block_enabled TINYINT(1) DEFAULT 0,
+      everyone_mention_enabled TINYINT(1) DEFAULT 1,
+      exempt_role_ids      TEXT,
       next_case_number     INT DEFAULT 1
     ) ENGINE=InnoDB
   `);
+  await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS everyone_mention_enabled TINYINT(1) DEFAULT 1`).catch(() => {});
+  await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS exempt_role_ids TEXT`).catch(() => {});
 
   // Every moderation action (manual or automatic) gets its own row and a
   // per-guild case number — "revoked" is reused for two related meanings
@@ -57,6 +61,20 @@ async function initSchema(p) {
       action           VARCHAR(20) NOT NULL,
       duration_minutes INT,
       PRIMARY KEY (guild_id, threshold)
+    ) ENGINE=InnoDB
+  `);
+
+  // One row per member who has ever sent a message — account age and join
+  // date come live from Discord (guild.members.fetch()), not stored here;
+  // this table only tracks what Discord itself doesn't remember for us.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS moderation_activity (
+      guild_id         VARCHAR(32) NOT NULL,
+      user_id          VARCHAR(32) NOT NULL,
+      username         VARCHAR(150) NOT NULL,
+      message_count    INT DEFAULT 0,
+      last_message_at  DATETIME NULL,
+      PRIMARY KEY (guild_id, user_id)
     ) ENGINE=InnoDB
   `);
 }
@@ -194,10 +212,37 @@ async function setEscalationRules(guildId, rules) {
   }
 }
 
+// ── Activity & per-user case counts (member overview + risk score) ──────────
+async function recordActivity(guildId, userId, username) {
+  await query(`
+    INSERT INTO moderation_activity (guild_id, user_id, username, message_count, last_message_at)
+    VALUES (:guildId, :userId, :username, 1, NOW())
+    ON DUPLICATE KEY UPDATE message_count = message_count + 1, last_message_at = NOW(), username = :username
+  `, { guildId, userId, username });
+}
+
+async function getActivity(guildId) {
+  return query('SELECT * FROM moderation_activity WHERE guild_id = :guildId', { guildId });
+}
+
+async function getCaseCountsByUser(guildId) {
+  return query(`
+    SELECT
+      user_id,
+      SUM(CASE WHEN action = 'warn' AND revoked = 0 THEN 1 ELSE 0 END) AS active_warns,
+      SUM(CASE WHEN action = 'kick' THEN 1 ELSE 0 END) AS kicks,
+      SUM(CASE WHEN action IN ('ban', 'tempban') THEN 1 ELSE 0 END) AS bans
+    FROM moderation_cases
+    WHERE guild_id = :guildId
+    GROUP BY user_id
+  `, { guildId });
+}
+
 module.exports = {
   initSchema, ensureGuild, getConfig, updateConfig,
   nextCaseNumber, insertCase, getCase, getRecentCases,
   getActiveWarnCount, getActiveWarnings, revokeWarning,
   getExpiredTempbans, markTempbanProcessed,
   getEscalationRules, getEscalationRuleForThreshold, setEscalationRules,
+  recordActivity, getActivity, getCaseCountsByUser,
 };

@@ -7,6 +7,7 @@
 const express         = require('express');
 const { ChannelType } = require('discord.js');
 const db     = require('./db');
+const risk   = require('./risk');
 const logger = require('../../utils/logger');
 
 const VALID_ESCALATION_ACTIONS = new Set(['timeout', 'kick', 'ban']);
@@ -60,6 +61,8 @@ module.exports = function moderationRoutes(discordClient) {
       const [cfg, rules] = await Promise.all([db.getConfig(guildId), db.getEscalationRules(guildId)]);
       let bannedWords = [];
       try { bannedWords = JSON.parse(cfg?.automod_words || '[]'); } catch { bannedWords = []; }
+      let exemptRoleIds = [];
+      try { exemptRoleIds = JSON.parse(cfg?.exempt_role_ids || '[]'); } catch { exemptRoleIds = []; }
 
       res.json({
         log_channel_id:       cfg?.log_channel_id || null,
@@ -71,6 +74,8 @@ module.exports = function moderationRoutes(discordClient) {
         mention_enabled:      !!cfg?.mention_enabled,
         mention_limit:        cfg?.mention_limit ?? 5,
         invite_block_enabled: !!cfg?.invite_block_enabled,
+        everyone_mention_enabled: cfg?.everyone_mention_enabled == null ? true : !!cfg.everyone_mention_enabled,
+        exempt_role_ids:      exemptRoleIds,
         escalation_rules:     rules.map(r => ({ threshold: r.threshold, action: r.action, duration_minutes: r.duration_minutes })),
       });
     } catch (err) {
@@ -98,6 +103,11 @@ module.exports = function moderationRoutes(discordClient) {
       if (Object.prototype.hasOwnProperty.call(body, 'mention_enabled')) updates.mention_enabled = body.mention_enabled ? 1 : 0;
       if (Object.prototype.hasOwnProperty.call(body, 'mention_limit')) updates.mention_limit = Math.max(1, Number(body.mention_limit) || 5);
       if (Object.prototype.hasOwnProperty.call(body, 'invite_block_enabled')) updates.invite_block_enabled = body.invite_block_enabled ? 1 : 0;
+      if (Object.prototype.hasOwnProperty.call(body, 'everyone_mention_enabled')) updates.everyone_mention_enabled = body.everyone_mention_enabled ? 1 : 0;
+      if (Object.prototype.hasOwnProperty.call(body, 'exempt_role_ids')) {
+        const roleIds = Array.isArray(body.exempt_role_ids) ? body.exempt_role_ids.map(String).filter(Boolean) : [];
+        updates.exempt_role_ids = JSON.stringify(roleIds);
+      }
 
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Keine Felder angegeben' });
 
@@ -132,6 +142,60 @@ module.exports = function moderationRoutes(discordClient) {
     } catch (err) {
       logger.error('Moderation: Fallliste laden fehlgeschlagen:', err.message);
       res.status(500).json({ error: 'Fallliste konnte nicht geladen werden' });
+    }
+  });
+
+  // ── Member activity overview + risk classification (read-only) ──────────────
+  // One bulk guild.members.fetch() instead of per-user lookups — this is
+  // an on-demand admin-panel view, not a hot path, so the cost is fine
+  // even for a few thousand members.
+  router.get('/admin/moderation/members', async (req, res) => {
+    try {
+      const guild = discordClient.guilds.cache.get(req.guildId);
+      if (!guild) return res.status(503).json({ error: 'Bot nicht bereit' });
+
+      const members = await guild.members.fetch();
+      const [activityRows, caseCountRows] = await Promise.all([
+        db.getActivity(req.guildId),
+        db.getCaseCountsByUser(req.guildId),
+      ]);
+      const activityByUser = new Map(activityRows.map(r => [r.user_id, r]));
+      const casesByUser    = new Map(caseCountRows.map(r => [r.user_id, r]));
+
+      const now = Date.now();
+      const result = members
+        .filter(m => !m.user.bot)
+        .map(m => {
+          const activity   = activityByUser.get(m.id);
+          const caseCounts = casesByUser.get(m.id);
+          const accountAgeDays = Math.floor((now - m.user.createdTimestamp) / 86400000);
+          const joinAgeDays    = m.joinedTimestamp ? Math.floor((now - m.joinedTimestamp) / 86400000) : null;
+
+          const activeWarns = Number(caseCounts?.active_warns || 0);
+          const kicks       = Number(caseCounts?.kicks || 0);
+          const bans        = Number(caseCounts?.bans || 0);
+          const { score, label } = risk.computeRisk({ activeWarns, kicks, bans, accountAgeDays, joinAgeDays });
+
+          return {
+            user_id:            m.id,
+            username:           m.user.tag,
+            message_count:      activity?.message_count || 0,
+            last_message_at:    activity?.last_message_at || null,
+            joined_at:          m.joinedAt,
+            account_created_at: m.user.createdAt,
+            active_warns:       activeWarns,
+            kicks,
+            bans,
+            risk_score:         score,
+            risk_label:         label,
+          };
+        })
+        .sort((a, b) => b.risk_score - a.risk_score);
+
+      res.json(result);
+    } catch (err) {
+      logger.error('Moderation: Mitgliederübersicht laden fehlgeschlagen:', err.message);
+      res.status(500).json({ error: 'Mitgliederübersicht konnte nicht geladen werden' });
     }
   });
 
