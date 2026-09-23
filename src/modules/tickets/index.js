@@ -8,14 +8,15 @@ const kategorie        = require('./commands/kategorie');
 const panel            = require('./commands/panel');
 const setup            = require('./commands/setup');
 
-const messageCreate = require('./events/messageCreate');
+const messageCreate     = require('./events/messageCreate');
+const guildMemberRemove = require('./events/guildMemberRemove');
 const { component } = require('./component');
 
 module.exports = {
   name: 'tickets',
   initSchema: db.initSchema,
   commands: [close, kategorieConfig, kategorie, panel, setup],
-  events: [messageCreate],
+  events: [messageCreate, guildMemberRemove],
   component,
   registerRoutes(router, ctx) {
     router.use('/', require('./routes')(ctx.discordClient));

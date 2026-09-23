@@ -87,46 +87,46 @@ function buildTicketButtonsRow(onHold, claimed) {
 }
 
 // ── Helper: close a ticket ────────────────────────────────────────────────────
-async function closeTicket(interaction, ticket) {
-  const { guild } = interaction;
-  const closedBy = interaction.user;
-
+// Decoupled from any interaction (client/guild/channel passed explicitly)
+// so it works both from a button click (see the confirm_close_ handler
+// below) and from a raw gateway event with no interaction at all — see
+// events/guildMemberRemove.js, which closes a ticket automatically when
+// its creator is kicked/banned/leaves.
+async function closeTicket(client, guild, channel, ticket, closedByTag, closedById, closeMessage) {
   await db.closeTicket({
     id:             ticket.id,
-    closed_by_id:   closedBy.id,
-    closed_by_name: closedBy.tag,
+    closed_by_id:   closedById,
+    closed_by_name: closedByTag,
   });
 
-  // Send closing message in channel
   const closeEmbed = new EmbedBuilder()
     .setTitle('🔒 Ticket geschlossen')
-    .setDescription(`Dieses Ticket wurde von ${closedBy} geschlossen.`)
+    .setDescription(closeMessage || `Dieses Ticket wurde von ${closedByTag} geschlossen.`)
     .setColor(0xED4245)
     .setTimestamp();
 
-  await interaction.channel.send({ embeds: [closeEmbed] });
+  await channel.send({ embeds: [closeEmbed] }).catch(() => {});
 
-  // Log to log channel
-  await ticketLog.logTicketClosed(interaction.client, guild.id, {
+  await ticketLog.logTicketClosed(client, guild.id, {
     ticket,
-    closedByTag: closedBy.tag,
+    closedByTag,
     source: '🎮 Discord',
   });
 
   // The panel's Auslastung numbers are based on open-ticket counts, so they
   // go stale the moment a ticket closes if we don't refresh here too.
-  await panelBuilder.refreshPanel(interaction.client, guild.id);
+  await panelBuilder.refreshPanel(client, guild.id);
 
   // Lock channel, then delete after 5 seconds
   try {
-    await interaction.channel.permissionOverwrites.edit(guild.id, {
+    await channel.permissionOverwrites.edit(guild.id, {
       SendMessages: false,
       ViewChannel: false,
     });
   } catch (_) { /* channel may already be gone */ }
 
   setTimeout(async () => {
-    try { await interaction.channel.delete(); } catch (_) { /* ignore */ }
+    try { await channel.delete(); } catch (_) { /* ignore */ }
   }, 5000);
 }
 
@@ -407,7 +407,7 @@ async function component(interaction) {
         return interaction.reply({ content: '❌ Ticket bereits geschlossen.', ephemeral: true });
       }
       await interaction.deferUpdate();
-      await closeTicket(interaction, ticket);
+      await closeTicket(interaction.client, interaction.guild, interaction.channel, ticket, interaction.user.tag, interaction.user.id);
       return;
     }
 
@@ -724,4 +724,6 @@ async function component(interaction) {
 // waiting room outside support hours) — it only needs a guild-context
 // interaction (interaction.guild/.user/.reply), a configured category name,
 // and a subject string, so it works unchanged from that button click too.
-module.exports = { component, createTicketChannel, buildTicketButtonsRow };
+// closeTicket is reused by events/guildMemberRemove.js to auto-close a
+// leaving/kicked/banned member's open tickets outside of any interaction.
+module.exports = { component, createTicketChannel, closeTicket, buildTicketButtonsRow };

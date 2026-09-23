@@ -302,6 +302,15 @@ async function getOpenTicketsByUserAndCategory(guildId, userId, category) {
   );
 }
 
+// Used by events/guildMemberRemove.js to auto-close every open ticket a
+// member leaves behind — across all categories, not just one.
+async function getOpenTicketsByUser(guildId, userId) {
+  return query(
+    "SELECT * FROM tickets WHERE guild_id = :guildId AND user_id = :userId AND status = 'open'",
+    { guildId, userId },
+  );
+}
+
 async function updateTicketChannel(channelId, ticketId) {
   await query('UPDATE tickets SET channel_id = :channelId WHERE id = :ticketId', { channelId, ticketId });
 }
@@ -437,6 +446,7 @@ module.exports = {
   getTicketByChannel,
   getTicketsByGuild,
   getOpenTicketsByUserAndCategory,
+  getOpenTicketsByUser,
   updateTicketChannel,
   updateTicketWelcomeMessage,
   updateTicketCategory,
