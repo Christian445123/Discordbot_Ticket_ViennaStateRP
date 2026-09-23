@@ -35,13 +35,14 @@ async function loadUser() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  ['categories', 'tickets', 'system', 'voice'].forEach(t => {
+  ['categories', 'tickets', 'system', 'voice', 'moderation'].forEach(t => {
     document.getElementById(`pane-${t}`)?.classList.toggle('d-none', t !== tab);
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
   });
   if (tab === 'categories') loadCategorySettings();
   if (tab === 'tickets')    { loadStats(); loadTickets(); }
   if (tab === 'voice')      loadVoiceSupportSettings();
+  if (tab === 'moderation') loadModerationSettings();
 }
 
 // ── Categories & automatic messages ─────────────────────────────────────────
@@ -683,6 +684,188 @@ async function saveVoiceSupportHours() {
     alertEl.className   = 'alert alert-danger';
     alertEl.textContent = 'Netzwerkfehler';
   }
+}
+
+// ── Moderation (Log/Honeypot, Automod, Eskalationsleiter, Fallverlauf) ──────
+const MOD_ACTION_LABELS = {
+  warn: '⚠️ Warn', kick: '👢 Kick', ban: '🔨 Ban', tempban: '⏳ Tempban',
+  unban: '🔓 Unban', timeout: '🔇 Timeout', untimeout: '🔊 Untimeout',
+};
+
+async function loadModerationChannelOptions() {
+  const res = await apiFetch('/api/admin/moderation/channels');
+  const channels = res.ok ? await res.json() : [];
+  const optionsHtml = '<option value="">Kein Kanal ausgewählt</option>' +
+    channels.map(c => `<option value="${c.id}">#${escapeHtml(c.name)}</option>`).join('');
+  document.getElementById('modLogChannel').innerHTML = optionsHtml;
+  document.getElementById('modHoneypotChannel').innerHTML = optionsHtml;
+}
+
+function escalationRowHtml(rule) {
+  rule = rule || { threshold: '', action: 'timeout', duration_minutes: 60 };
+  return `
+    <div class="row g-2 align-items-center mb-2 mod-escalation-row">
+      <div class="col-auto">
+        <label class="form-label text-muted small mb-0 d-block">Bei Warnungen</label>
+        <input type="number" class="form-control form-control-sm mod-esc-threshold" min="1" style="width:100px" value="${rule.threshold}" />
+      </div>
+      <div class="col-auto">
+        <label class="form-label text-muted small mb-0 d-block">Aktion</label>
+        <select class="form-select form-select-sm mod-esc-action" style="width:140px" onchange="toggleEscalationDuration(this)">
+          <option value="timeout" ${rule.action === 'timeout' ? 'selected' : ''}>Timeout</option>
+          <option value="kick" ${rule.action === 'kick' ? 'selected' : ''}>Kick</option>
+          <option value="ban" ${rule.action === 'ban' ? 'selected' : ''}>Ban</option>
+        </select>
+      </div>
+      <div class="col-auto mod-esc-duration-wrap" ${rule.action !== 'timeout' ? 'style="display:none"' : ''}>
+        <label class="form-label text-muted small mb-0 d-block">Dauer (Min.)</label>
+        <input type="number" class="form-control form-control-sm mod-esc-duration" min="1" style="width:100px" value="${rule.duration_minutes || 60}" />
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0 d-block">&nbsp;</label>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.mod-escalation-row').remove()">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+function toggleEscalationDuration(selectEl) {
+  const wrap = selectEl.closest('.mod-escalation-row').querySelector('.mod-esc-duration-wrap');
+  wrap.style.display = selectEl.value === 'timeout' ? '' : 'none';
+}
+
+function addEscalationRow(rule) {
+  document.getElementById('modEscalationRows').insertAdjacentHTML('beforeend', escalationRowHtml(rule));
+}
+
+function renderEscalationRows(rules) {
+  const container = document.getElementById('modEscalationRows');
+  container.innerHTML = '';
+  (rules || []).forEach(r => addEscalationRow(r));
+}
+
+async function loadModerationSettings() {
+  await loadModerationChannelOptions();
+
+  const res = await apiFetch('/api/admin/moderation');
+  if (!res.ok) return;
+  const data = await res.json();
+
+  document.getElementById('modLogChannel').value      = data.log_channel_id || '';
+  document.getElementById('modHoneypotChannel').value = data.honeypot_channel_id || '';
+  document.getElementById('modBannedWords').value      = (data.banned_words || []).join('\n');
+  document.getElementById('modSpamEnabled').checked    = !!data.spam_enabled;
+  document.getElementById('modSpamLimit').value        = data.spam_message_limit;
+  document.getElementById('modSpamWindow').value       = data.spam_window_seconds;
+  document.getElementById('modMentionEnabled').checked = !!data.mention_enabled;
+  document.getElementById('modMentionLimit').value     = data.mention_limit;
+  document.getElementById('modInviteEnabled').checked  = !!data.invite_block_enabled;
+
+  renderEscalationRows(data.escalation_rules);
+  await loadModerationCases();
+}
+
+async function saveModerationConfig() {
+  const alertEl = document.getElementById('modConfigAlert');
+  const words = document.getElementById('modBannedWords').value
+    .split('\n').map(w => w.trim()).filter(Boolean);
+
+  const payload = {
+    log_channel_id:       document.getElementById('modLogChannel').value || null,
+    honeypot_channel_id:  document.getElementById('modHoneypotChannel').value || null,
+    banned_words:         words,
+    spam_enabled:         document.getElementById('modSpamEnabled').checked ? 1 : 0,
+    spam_message_limit:   Number(document.getElementById('modSpamLimit').value) || 5,
+    spam_window_seconds:  Number(document.getElementById('modSpamWindow').value) || 5,
+    mention_enabled:      document.getElementById('modMentionEnabled').checked ? 1 : 0,
+    mention_limit:        Number(document.getElementById('modMentionLimit').value) || 5,
+    invite_block_enabled: document.getElementById('modInviteEnabled').checked ? 1 : 0,
+  };
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/moderation', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
+}
+
+function collectEscalationRules() {
+  return Array.from(document.querySelectorAll('#modEscalationRows .mod-escalation-row')).map(row => ({
+    threshold:        Number(row.querySelector('.mod-esc-threshold').value),
+    action:           row.querySelector('.mod-esc-action').value,
+    duration_minutes: Number(row.querySelector('.mod-esc-duration').value) || null,
+  }));
+}
+
+async function saveEscalationRules() {
+  const alertEl = document.getElementById('modEscalationAlert');
+  const rules = collectEscalationRules();
+
+  if (rules.some(r => !r.threshold || r.threshold < 1)) {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Bitte für jede Stufe eine gültige Warnanzahl (≥ 1) angeben.';
+    return;
+  }
+  const thresholds = rules.map(r => r.threshold);
+  if (new Set(thresholds).size !== thresholds.length) {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Jede Warnanzahl darf nur einmal vorkommen.';
+    return;
+  }
+
+  alertEl.className   = 'alert alert-info';
+  alertEl.textContent = 'Speichern…';
+  try {
+    const res  = await apiFetch('/api/admin/moderation/escalation', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rules }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alertEl.className   = 'alert alert-success';
+      alertEl.textContent = '✓ Gespeichert';
+    } else {
+      alertEl.className   = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Fehler';
+    }
+  } catch {
+    alertEl.className   = 'alert alert-danger';
+    alertEl.textContent = 'Netzwerkfehler';
+  }
+}
+
+async function loadModerationCases() {
+  const tbody = document.getElementById('modCasesTableBody');
+  const res = await apiFetch('/api/admin/moderation/cases');
+  const cases = res.ok ? await res.json() : [];
+
+  if (!cases.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Noch keine Fälle.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = cases.map(c => `
+    <tr class="${c.revoked ? 'text-muted' : ''}">
+      <td>#${c.case_number}</td>
+      <td>${MOD_ACTION_LABELS[c.action] || escapeHtml(c.action)}</td>
+      <td>${escapeHtml(c.username)}</td>
+      <td>${escapeHtml(c.moderator_name)}</td>
+      <td>${escapeHtml(c.reason || '—')}</td>
+      <td>${formatDate(c.created_at)}</td>
+    </tr>`).join('');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
