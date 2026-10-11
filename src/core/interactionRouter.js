@@ -27,7 +27,10 @@ function register(client) {
         return;
       }
 
-      if (interaction.isChatInputCommand()) {
+      // Chat-input (/command) and context-menu (right-click → Apps → ...)
+      // commands both dispatch the same way — same client.commands lookup
+      // by name, same execute(interaction) call, same error handling.
+      if (interaction.isChatInputCommand() || interaction.isMessageContextMenuCommand() || interaction.isUserContextMenuCommand()) {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
         try {

@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } = require('discord.js');
 const db      = require('../db');
 const actions = require('../actions');
+const { isModerator } = require('../isModerator');
 
 // Accepts "10m", "2h", "7d", "3w" or a bare number (assumed minutes).
 // Returns null for anything unparseable so callers can reply with a clear
@@ -23,18 +24,10 @@ const DISCORD_TIMEOUT_MAX_MINUTES = 28 * 24 * 60; // Discord's own hard cap
 
 // /mod has no setDefaultMemberPermissions gate (see below) — visibility and
 // authorization are both handled here instead, against the web-panel-
-// configured moderator_role_ids, so access is tied to a specific role the
-// admin picks (e.g. "Team"/"High Team") rather than Discord's generic
-// "Moderate Members" permission, which this server's staff roles may or
-// may not actually have. Administrator is always allowed, same convention
-// as isTicketStaff/isStaffMember elsewhere in this bot.
-function isModerator(member, cfg) {
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-
-  let moderatorRoleIds;
-  try { moderatorRoleIds = JSON.parse(cfg?.moderator_role_ids || '[]'); } catch { moderatorRoleIds = []; }
-  return moderatorRoleIds.some(roleId => member.roles.cache.has(roleId));
-}
+// configured moderator_role_ids (see isModerator, ../isModerator.js), so
+// access is tied to a specific role the admin picks (e.g. "Team"/"High
+// Team") rather than Discord's generic "Moderate Members" permission,
+// which this server's staff roles may or may not actually have.
 
 function actionReplyEmbed(title, caseRow, extra) {
   const embed = new EmbedBuilder()
