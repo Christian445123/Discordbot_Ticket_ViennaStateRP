@@ -24,6 +24,7 @@ async function initSchema(p) {
       exempt_role_ids      TEXT,
       moderator_role_ids   TEXT,
       staff_mention_block_enabled TINYINT(1) DEFAULT 1,
+      protected_mention_role_ids TEXT,
       next_case_number     INT DEFAULT 1
     ) ENGINE=InnoDB
   `);
@@ -34,6 +35,11 @@ async function initSchema(p) {
   // team/staff members (moderator_role_ids, see automod.js) is blocked by
   // default rather than opt-in, same as @everyone/@here.
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS staff_mention_block_enabled TINYINT(1) DEFAULT 1`).catch(() => {});
+  // Separate, admin-pickable role list (any role, not just moderator_role_ids)
+  // whose members may not be @-mentioned by regular members — no separate
+  // enable toggle, an empty list simply means nothing extra is protected
+  // (same convention as exempt_role_ids). See automod.js.
+  await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS protected_mention_role_ids TEXT`).catch(() => {});
 
   // Every moderation action (manual or automatic) gets its own row and a
   // per-guild case number — "revoked" is reused for two related meanings

@@ -65,6 +65,8 @@ module.exports = function moderationRoutes(discordClient) {
       try { exemptRoleIds = JSON.parse(cfg?.exempt_role_ids || '[]'); } catch { exemptRoleIds = []; }
       let moderatorRoleIds = [];
       try { moderatorRoleIds = JSON.parse(cfg?.moderator_role_ids || '[]'); } catch { moderatorRoleIds = []; }
+      let protectedMentionRoleIds = [];
+      try { protectedMentionRoleIds = JSON.parse(cfg?.protected_mention_role_ids || '[]'); } catch { protectedMentionRoleIds = []; }
 
       res.json({
         log_channel_id:       cfg?.log_channel_id || null,
@@ -79,6 +81,7 @@ module.exports = function moderationRoutes(discordClient) {
         everyone_mention_enabled: cfg?.everyone_mention_enabled == null ? true : !!cfg.everyone_mention_enabled,
         exempt_role_ids:      exemptRoleIds,
         moderator_role_ids:   moderatorRoleIds,
+        protected_mention_role_ids: protectedMentionRoleIds,
         escalation_rules:     rules.map(r => ({ threshold: r.threshold, action: r.action, duration_minutes: r.duration_minutes })),
       });
     } catch (err) {
@@ -114,6 +117,10 @@ module.exports = function moderationRoutes(discordClient) {
       if (Object.prototype.hasOwnProperty.call(body, 'moderator_role_ids')) {
         const roleIds = Array.isArray(body.moderator_role_ids) ? body.moderator_role_ids.map(String).filter(Boolean) : [];
         updates.moderator_role_ids = JSON.stringify(roleIds);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'protected_mention_role_ids')) {
+        const roleIds = Array.isArray(body.protected_mention_role_ids) ? body.protected_mention_role_ids.map(String).filter(Boolean) : [];
+        updates.protected_mention_role_ids = JSON.stringify(roleIds);
       }
 
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Keine Felder angegeben' });

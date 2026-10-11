@@ -779,6 +779,14 @@ async function loadModerationChannelOptions() {
           <label class="form-check-label small" for="modModeratorRole-${r.id}">${escapeHtml(r.name)}</label>
         </div>`).join('')
     : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
+
+  document.getElementById('modProtectedMentionRoles').innerHTML = roles.length
+    ? roles.map(r => `
+        <div class="form-check">
+          <input class="form-check-input mod-protected-mention-role-checkbox" type="checkbox" value="${r.id}" id="modProtectedMentionRole-${r.id}" />
+          <label class="form-check-label small" for="modProtectedMentionRole-${r.id}">${escapeHtml(r.name)}</label>
+        </div>`).join('')
+    : '<p class="text-muted small mb-0">Keine Rollen gefunden.</p>';
 }
 
 function setExemptRoleCheckboxes(roleIds) {
@@ -801,6 +809,17 @@ function setModeratorRoleCheckboxes(roleIds) {
 
 function collectModeratorRoleIds() {
   return Array.from(document.querySelectorAll('#modModeratorRoles .mod-moderator-role-checkbox:checked')).map(cb => cb.value);
+}
+
+function setProtectedMentionRoleCheckboxes(roleIds) {
+  const set = new Set(roleIds || []);
+  document.querySelectorAll('#modProtectedMentionRoles .mod-protected-mention-role-checkbox').forEach(cb => {
+    cb.checked = set.has(cb.value);
+  });
+}
+
+function collectProtectedMentionRoleIds() {
+  return Array.from(document.querySelectorAll('#modProtectedMentionRoles .mod-protected-mention-role-checkbox:checked')).map(cb => cb.value);
 }
 
 async function saveModeratorRoles() {
@@ -889,6 +908,7 @@ async function loadModerationSettings() {
   document.getElementById('modEveryoneEnabled').checked = !!data.everyone_mention_enabled;
   setExemptRoleCheckboxes(data.exempt_role_ids);
   setModeratorRoleCheckboxes(data.moderator_role_ids);
+  setProtectedMentionRoleCheckboxes(data.protected_mention_role_ids);
 
   renderEscalationRows(data.escalation_rules);
   await Promise.all([loadModerationCases(), loadModerationMembers()]);
@@ -911,6 +931,7 @@ async function saveModerationConfig() {
     invite_block_enabled: document.getElementById('modInviteEnabled').checked ? 1 : 0,
     everyone_mention_enabled: document.getElementById('modEveryoneEnabled').checked ? 1 : 0,
     exempt_role_ids:      collectExemptRoleIds(),
+    protected_mention_role_ids: collectProtectedMentionRoleIds(),
   };
 
   alertEl.className   = 'alert alert-info';

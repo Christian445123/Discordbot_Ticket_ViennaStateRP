@@ -37,26 +37,29 @@ function isSpamming(guildId, userId, limit, windowSeconds) {
   return timestamps.length > limit;
 }
 
+function parseRoleIds(json) {
+  try { return JSON.parse(json || '[]'); } catch { return []; }
+}
+
 // "Team/Staff" for this purpose is the same moderator_role_ids list that
 // gates /mod itself (see commands/mod.js's isModerator) — Administrator
 // always counts too, same convention as everywhere else in this bot.
-function parseModeratorRoleIds(cfg) {
-  try { return JSON.parse(cfg.moderator_role_ids || '[]'); } catch { return []; }
-}
-
 function isStaffMember(member, moderatorRoleIds) {
   if (!member) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
   return moderatorRoleIds.some(roleId => member.roles.cache.has(roleId));
 }
 
-// Catches both a direct @user ping of a staff member (message.mentions.
-// members — already-resolved GuildMembers, more reliable than looking
-// members up via guild.members.cache ourselves) and a ping of the team
-// role itself (message.mentions.roles).
-function mentionsStaff(message, moderatorRoleIds) {
-  if (message.mentions.roles.some(r => moderatorRoleIds.includes(r.id))) return true;
-  return message.mentions.members.some(m => isStaffMember(m, moderatorRoleIds));
+// Catches both a direct @user ping of someone holding one of roleIds
+// (message.mentions.members — already-resolved GuildMembers, more
+// reliable than looking members up via guild.members.cache ourselves) and
+// a ping of one of those roles itself (message.mentions.roles). Used both
+// for the team-mention check (roleIds = moderator_role_ids) and the
+// separate, freely configurable protected-mention check (roleIds =
+// protected_mention_role_ids) below.
+function mentionsAnyRole(message, roleIds) {
+  if (message.mentions.roles.some(r => roleIds.includes(r.id))) return true;
+  return message.mentions.members.some(m => roleIds.some(roleId => m.roles.cache.has(roleId)));
 }
 
 function findBannedWord(content, wordsJson) {
@@ -143,15 +146,30 @@ async function handleAutomod(message, cfg) {
     violation = '@everyone/@here-Erwähnung';
   }
 
+  // Staff is exempt from both checks below (pinging staff/protected
+  // members is normal for staff) — computed once up front either way.
+  const moderatorRoleIds = parseRoleIds(cfg.moderator_role_ids);
+  const authorIsStaff    = isStaffMember(message.member, moderatorRoleIds);
+
   // Pinging/@-mentioning team members is off-limits for anyone who isn't
-  // staff themselves (staff pinging staff is normal and stays allowed), and
-  // doesn't apply inside ticket channels, where asking for staff by @ is
-  // the whole point of the channel (see tickets/categoryNotify.js).
+  // staff themselves, and doesn't apply inside ticket channels, where
+  // asking for staff by @ is the whole point of the channel (see
+  // tickets/categoryNotify.js).
   if (!violation && cfg.staff_mention_block_enabled) {
-    const moderatorRoleIds = parseModeratorRoleIds(cfg);
-    if (moderatorRoleIds.length && !isStaffMember(message.member, moderatorRoleIds) && mentionsStaff(message, moderatorRoleIds)) {
+    if (moderatorRoleIds.length && !authorIsStaff && mentionsAnyRole(message, moderatorRoleIds)) {
       const ticket = await ticketsDb.getTicketByChannel(message.channel.id).catch(() => null);
       if (!ticket) violation = 'Erwähnung eines Teammitglieds (nicht erlaubt)';
+    }
+  }
+
+  // Separate, freely admin-configured role list (any role, not just the
+  // team/moderator one above) — no enable toggle, an empty list just means
+  // nothing extra is protected (see db.js's protected_mention_role_ids).
+  if (!violation) {
+    const protectedRoleIds = parseRoleIds(cfg.protected_mention_role_ids);
+    if (protectedRoleIds.length && !authorIsStaff && mentionsAnyRole(message, protectedRoleIds)) {
+      const ticket = await ticketsDb.getTicketByChannel(message.channel.id).catch(() => null);
+      if (!ticket) violation = 'Erwähnung eines Mitglieds einer geschützten Rolle (nicht erlaubt)';
     }
   }
 
