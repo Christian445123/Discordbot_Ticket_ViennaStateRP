@@ -1,9 +1,10 @@
 'use strict';
 
 const { PermissionFlagsBits } = require('discord.js');
-const db      = require('./db');
-const actions = require('./actions');
-const logger  = require('../../utils/logger');
+const db        = require('./db');
+const actions   = require('./actions');
+const ticketsDb = require('../tickets/db');
+const logger    = require('../../utils/logger');
 
 const INVITE_REGEX = /(?:discord\.gg|discord(?:app)?\.com\/invite)\/[a-z0-9-]+/i;
 
@@ -34,6 +35,28 @@ function isSpamming(guildId, userId, limit, windowSeconds) {
   timestamps.push(now);
   recentMessageTimestamps.set(key, timestamps);
   return timestamps.length > limit;
+}
+
+// "Team/Staff" for this purpose is the same moderator_role_ids list that
+// gates /mod itself (see commands/mod.js's isModerator) — Administrator
+// always counts too, same convention as everywhere else in this bot.
+function parseModeratorRoleIds(cfg) {
+  try { return JSON.parse(cfg.moderator_role_ids || '[]'); } catch { return []; }
+}
+
+function isStaffMember(member, moderatorRoleIds) {
+  if (!member) return false;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  return moderatorRoleIds.some(roleId => member.roles.cache.has(roleId));
+}
+
+// Catches both a direct @user ping of a staff member (message.mentions.
+// members — already-resolved GuildMembers, more reliable than looking
+// members up via guild.members.cache ourselves) and a ping of the team
+// role itself (message.mentions.roles).
+function mentionsStaff(message, moderatorRoleIds) {
+  if (message.mentions.roles.some(r => moderatorRoleIds.includes(r.id))) return true;
+  return message.mentions.members.some(m => isStaffMember(m, moderatorRoleIds));
 }
 
 function findBannedWord(content, wordsJson) {
@@ -80,11 +103,12 @@ async function handleHoneypot(message, cfg) {
   return true;
 }
 
-// Checks @everyone/@here, banned words, invite links, mass mentions and
-// spam in that order (first hit wins) — deletes the message and issues an
-// automatic warning, which feeds straight into the same escalation ladder
-// as a manual /mod warn (see actions.js's checkEscalation). Skipped
-// entirely for exempt members (see isExempt above).
+// Checks @everyone/@here, staff mentions, banned words, invite links, mass
+// mentions and spam in that order (first hit wins) — deletes the message
+// and issues an automatic warning, which feeds straight into the same
+// escalation ladder as a manual /mod warn (see actions.js's
+// checkEscalation). Skipped entirely for exempt members (see isExempt
+// above).
 async function handleAutomod(message, cfg) {
   if (isExempt(message.member, cfg)) return;
 
@@ -92,6 +116,18 @@ async function handleAutomod(message, cfg) {
 
   if (cfg.everyone_mention_enabled && message.mentions.everyone) {
     violation = '@everyone/@here-Erwähnung';
+  }
+
+  // Pinging/@-mentioning team members is off-limits for anyone who isn't
+  // staff themselves (staff pinging staff is normal and stays allowed), and
+  // doesn't apply inside ticket channels, where asking for staff by @ is
+  // the whole point of the channel (see tickets/categoryNotify.js).
+  if (!violation && cfg.staff_mention_block_enabled) {
+    const moderatorRoleIds = parseModeratorRoleIds(cfg);
+    if (moderatorRoleIds.length && !isStaffMember(message.member, moderatorRoleIds) && mentionsStaff(message, moderatorRoleIds)) {
+      const ticket = await ticketsDb.getTicketByChannel(message.channel.id).catch(() => null);
+      if (!ticket) violation = 'Erwähnung eines Teammitglieds (nicht erlaubt)';
+    }
   }
 
   const bannedWord = !violation && findBannedWord(message.content, cfg.automod_words);

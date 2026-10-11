@@ -107,6 +107,11 @@ module.exports = {
       .addUserOption(o => o.setName('nutzer').setDescription('Nutzer').setRequired(true))
       .addStringOption(o => o.setName('grund').setDescription('Grund').setRequired(false).setMaxLength(500)))
     .addSubcommand(sub => sub
+      .setName('dm-melden')
+      .setDescription('Meldet die unerlaubte Kontaktaufnahme per Direktnachricht an ein Teammitglied')
+      .addUserOption(o => o.setName('nutzer').setDescription('Nutzer, der per DM angeschrieben hat').setRequired(true))
+      .addStringOption(o => o.setName('details').setDescription('Zusätzliche Details (optional)').setRequired(false).setMaxLength(500)))
+    .addSubcommand(sub => sub
       .setName('case')
       .setDescription('Zeigt die Details eines Falls')
       .addIntegerOption(o => o.setName('fall').setDescription('Fallnummer').setRequired(true).setMinValue(1)))
@@ -264,6 +269,38 @@ module.exports = {
       } catch (err) {
         return interaction.reply({ content: `❌ Aufheben fehlgeschlagen: ${err.message}`, ephemeral: true });
       }
+    }
+
+    // Discord gives bots no visibility into DMs between two other users, so
+    // this can't be detected automatically like the staff-mention automod
+    // check (automod.js) — staff reports it themselves after the fact, and
+    // it's actioned exactly like a manual warn (same escalation ladder,
+    // same mod-log entry), plus a heads-up DM to the offender explaining why.
+    if (sub === 'dm-melden') {
+      const target  = interaction.options.getUser('nutzer', true);
+      const details = interaction.options.getString('details');
+      const reason = `Unerlaubte Kontaktaufnahme per Direktnachricht an ein Teammitglied (gemeldet von ${interaction.user.tag}).`
+        + (details ? ` Details: ${details}` : '');
+
+      const { caseRow, escalationCase } = await actions.warn(interaction.client, guild, target, reason, moderatorId, moderatorName);
+
+      try {
+        await target.send(
+          `⚠️ Du wurdest verwarnt: Ein Teammitglied per Direktnachricht zu kontaktieren ist nicht erlaubt. `
+          + `Nutze stattdessen ein Ticket oder den passenden Kanal auf dem Server. (Fall #${caseRow.case_number})`,
+        );
+      } catch (_) { /* DMs können blockiert sein — Verwarnung steht trotzdem */ }
+
+      const embed = actionReplyEmbed('📨 DM-Kontakt gemeldet & Nutzer verwarnt', caseRow, { name: 'Grund', value: reason, inline: false });
+      if (escalationCase) {
+        const duration    = actions.formatDuration(escalationCase.duration_minutes);
+        const actionLabel = duration ? `${escalationCase.action} (${duration})` : escalationCase.action;
+        embed.addFields({
+          name:  '🚨 Automatische Eskalation ausgelöst',
+          value: `${actionLabel} — Fall #${escalationCase.case_number}`,
+        });
+      }
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (sub === 'case') {

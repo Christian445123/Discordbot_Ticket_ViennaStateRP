@@ -23,12 +23,17 @@ async function initSchema(p) {
       everyone_mention_enabled TINYINT(1) DEFAULT 1,
       exempt_role_ids      TEXT,
       moderator_role_ids   TEXT,
+      staff_mention_block_enabled TINYINT(1) DEFAULT 1,
       next_case_number     INT DEFAULT 1
     ) ENGINE=InnoDB
   `);
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS everyone_mention_enabled TINYINT(1) DEFAULT 1`).catch(() => {});
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS exempt_role_ids TEXT`).catch(() => {});
   await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS moderator_role_ids TEXT`).catch(() => {});
+  // Mirrors everyone_mention_enabled's default-on convention — pinging
+  // team/staff members (moderator_role_ids, see automod.js) is blocked by
+  // default rather than opt-in, same as @everyone/@here.
+  await p.query(`ALTER TABLE moderation_guilds ADD COLUMN IF NOT EXISTS staff_mention_block_enabled TINYINT(1) DEFAULT 1`).catch(() => {});
 
   // Every moderation action (manual or automatic) gets its own row and a
   // per-guild case number — "revoked" is reused for two related meanings
