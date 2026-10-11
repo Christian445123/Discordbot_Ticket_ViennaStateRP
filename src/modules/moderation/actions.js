@@ -141,6 +141,22 @@ async function checkEscalation(client, guild, user) {
 
 async function warn(client, guild, user, reason, moderatorId, moderatorName) {
   const caseRow = await createCase(client, guild.id, { action: 'warn', userId: user.id, username: user.tag, moderatorId, moderatorName, reason });
+
+  // The warned user otherwise never finds out — neither /mod warn nor an
+  // automatic automod warning notified them before this. One place so
+  // every warn source (manual, automod, honeypot via escalation, the
+  // dm-melden report flow) behaves the same; best-effort since DMs can be
+  // blocked/closed.
+  try {
+    await user.send(
+      `⚠️ Du wurdest auf **${guild.name}** verwarnt.\n`
+      + `**Grund:** ${reason || '—'}\n`
+      + `**Fall:** #${caseRow.case_number}`,
+    );
+  } catch (err) {
+    logger.warn(`Moderation: Verwarnungs-DM an ${user.tag} konnte nicht gesendet werden (${err.message}).`);
+  }
+
   const escalationCase = await checkEscalation(client, guild, user);
   return { caseRow, escalationCase };
 }

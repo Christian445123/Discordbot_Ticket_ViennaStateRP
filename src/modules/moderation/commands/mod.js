@@ -268,7 +268,7 @@ module.exports = {
     // this can't be detected automatically like the staff-mention automod
     // check (automod.js) — staff reports it themselves after the fact, and
     // it's actioned exactly like a manual warn (same escalation ladder,
-    // same mod-log entry), plus a heads-up DM to the offender explaining why.
+    // same mod-log entry, same automatic heads-up DM — see actions.warn).
     if (sub === 'dm-melden') {
       const target  = interaction.options.getUser('nutzer', true);
       const details = interaction.options.getString('details');
@@ -276,13 +276,6 @@ module.exports = {
         + (details ? ` Details: ${details}` : '');
 
       const { caseRow, escalationCase } = await actions.warn(interaction.client, guild, target, reason, moderatorId, moderatorName);
-
-      try {
-        await target.send(
-          `⚠️ Du wurdest verwarnt: Ein Teammitglied per Direktnachricht zu kontaktieren ist nicht erlaubt. `
-          + `Nutze stattdessen ein Ticket oder den passenden Kanal auf dem Server. (Fall #${caseRow.case_number})`,
-        );
-      } catch (_) { /* DMs können blockiert sein — Verwarnung steht trotzdem */ }
 
       const embed = actionReplyEmbed('📨 DM-Kontakt gemeldet & Nutzer verwarnt', caseRow, { name: 'Grund', value: reason, inline: false });
       if (escalationCase) {

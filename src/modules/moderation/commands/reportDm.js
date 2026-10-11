@@ -73,16 +73,11 @@ module.exports = {
       : '(kein Textinhalt, z. B. nur ein Anhang)';
     const reason = `Unerlaubte Kontaktaufnahme per Direktnachricht an ein Teammitglied (gemeldet von ${interaction.user.tag}). Nachricht: ${snippet}`;
 
+    // actions.warn() already DMs the reported user with the reason/case
+    // number automatically — no need to send a separate heads-up here.
     const { caseRow, escalationCase } = await actions.warn(
       interaction.client, guild, reportedUser, reason, interaction.user.id, interaction.user.tag,
     );
-
-    try {
-      await reportedUser.send(
-        '⚠️ Du wurdest verwarnt: Ein Teammitglied per Direktnachricht zu kontaktieren ist nicht erlaubt. '
-        + `Nutze stattdessen ein Ticket oder den passenden Kanal auf dem Server. (Fall #${caseRow.case_number})`,
-      );
-    } catch (_) { /* DMs können blockiert sein — Verwarnung steht trotzdem */ }
 
     const embed = new EmbedBuilder()
       .setTitle('📨 DM-Kontakt gemeldet & Nutzer verwarnt')
