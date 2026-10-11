@@ -28,6 +28,7 @@ const panelBuilder = require('./panelBuilder');
 const ticketEmbed  = require('./ticketEmbed');
 const { buildTicketButtonsRow } = require('./component');
 const guards       = require('../../core/guards');
+const moduleLoader = require('../../core/moduleLoader');
 const logger       = require('../../utils/logger');
 
 // Repo root (this file lives at src/modules/tickets/) — where git/npm
@@ -597,6 +598,34 @@ module.exports = function apiRoutes(discordClient) {
     } catch (err) {
       logger.error('Neustart fehlgeschlagen:', err.message);
       res.status(500).json({ error: `Neustart fehlgeschlagen: ${err.message}` });
+    }
+  });
+
+  // Re-registers every module's slash commands with Discord — the fix for
+  // "command exists in code but is missing from Discord's / picker", which
+  // normally only happens via the manual `npm run deploy-commands` script
+  // (src/bot/deploy-commands.js) after adding/renaming a command. Reuses
+  // that same command list (moduleLoader.collectAllCommandsJSON()) but
+  // pushes it straight through the already-logged-in discordClient instead
+  // of spinning up a separate REST client — global scope (all guilds the
+  // bot is in), same as deploy-commands.js without DEV_GUILD_ID set.
+  router.post('/admin/system/register-commands', async (req, res) => {
+    const triggeredByTag = `${req.user.username} (Web)`;
+    try {
+      const commandsJSON = moduleLoader.collectAllCommandsJSON();
+      const registered = await discordClient.application.commands.set(commandsJSON);
+
+      logger.warn(`Slash-Commands neu registriert von ${triggeredByTag} (${registered.size} Commands, global).`);
+      await ticketLog.logSystemAction(discordClient, req.guildId, {
+        title: '🔄 Slash-Commands neu registriert',
+        description: `**${registered.size}** Commands global neu registriert.`,
+        color: 0x5865F2, triggeredByTag,
+      });
+
+      res.json({ success: true, count: registered.size });
+    } catch (err) {
+      logger.error('Slash-Commands registrieren fehlgeschlagen:', err.message);
+      res.status(500).json({ error: `Registrieren fehlgeschlagen: ${err.message}` });
     }
   });
 

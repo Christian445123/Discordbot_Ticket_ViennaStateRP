@@ -533,6 +533,29 @@ async function triggerRestart() {
   btn.disabled = false;
 }
 
+async function triggerRegisterCommands() {
+  if (!confirm('Alle Slash-Commands neu bei Discord registrieren (global, für alle Server)?')) return;
+  const btn    = document.getElementById('registerCommandsBtn');
+  const result = document.getElementById('registerCommandsResult');
+  btn.disabled = true;
+  result.className   = 'small';
+  result.textContent = '⏳ Registriere …';
+  try {
+    const { ok, data } = await postSystem('register-commands');
+    if (ok) {
+      result.className   = 'small text-success';
+      result.textContent = `✓ ${data.count} Slash-Commands erfolgreich registriert.`;
+    } else {
+      result.className   = 'small text-danger';
+      result.textContent = `❌ ${data.error || 'Unbekannter Fehler'}`;
+    }
+  } catch {
+    result.className   = 'small text-danger';
+    result.textContent = '❌ Netzwerkfehler';
+  }
+  btn.disabled = false;
+}
+
 // ── Voice-Support (Warteraum, Benachrichtigung, Supportzeiten) ──────────────
 // Weekday order shown to the admin (Mo..So), mapped to the JS Date.getDay()
 // convention (0=So..6=Sa) the backend/DB use — VOICE_WEEKDAY_ORDER[i] is the
