@@ -43,7 +43,7 @@ module.exports = {
   data: new ContextMenuCommandBuilder()
     .setName('Nachricht melden (DM)')
     .setType(ApplicationCommandType.Message)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.PrivateChannel)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
     .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall),
 
   async execute(interaction) {
