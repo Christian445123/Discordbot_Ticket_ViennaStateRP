@@ -104,15 +104,27 @@ async function startIfWaiting(client, guildId, cfg, channel) {
 // instead of waiting for nobody. Falls back to a mention in the waiting
 // room's own chat if the DM can't be delivered (e.g. the user has direct
 // messages from server members turned off), so they still get the info.
+//
+// Closed "manuell" (cfg.manual_override === 'closed') is a deliberate,
+// temporary staff decision rather than just being outside the normal
+// schedule — the Supportzeiten table would be misleading there (it'd show
+// hours during which support looks "open" even though staff explicitly
+// closed it), so that case gets its own wording without it, same ticket
+// button either way.
 async function sendClosedNotice(guildId, cfg, member, channel) {
-  const hourRows = await db.getHours(guildId);
+  const embed = new EmbedBuilder().setColor(0xED4245).setTimestamp();
 
-  const embed = new EmbedBuilder()
-    .setTitle('🔒 Support ist aktuell geschlossen')
-    .setDescription('Gerade ist niemand aus dem Team im Support-Warteraum verfügbar. Du kannst stattdessen ein Ticket erstellen.')
-    .setColor(0xED4245)
-    .addFields({ name: `Supportzeiten (${hours.TIMEZONE})`, value: hours.formatWeeklySummary(hourRows) })
-    .setTimestamp();
+  if (cfg?.manual_override === 'closed') {
+    embed
+      .setTitle('🔒 Support ist vorübergehend geschlossen')
+      .setDescription('Der Support ist aktuell vorübergehend geschlossen. Bitte erstelle stattdessen ein Ticket, dein Anliegen wird dort bearbeitet.');
+  } else {
+    const hourRows = await db.getHours(guildId);
+    embed
+      .setTitle('🔒 Support ist aktuell geschlossen')
+      .setDescription('Gerade ist niemand aus dem Team im Support-Warteraum verfügbar. Du kannst stattdessen ein Ticket erstellen.')
+      .addFields({ name: `Supportzeiten (${hours.TIMEZONE})`, value: hours.formatWeeklySummary(hourRows) });
+  }
 
   const row = buildTicketButtonRow(guildId);
 
