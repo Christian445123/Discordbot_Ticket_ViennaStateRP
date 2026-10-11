@@ -84,6 +84,7 @@ async function initSchema(p) {
   await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS welcome_message_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS on_hold_by_id VARCHAR(32) DEFAULT NULL`).catch(() => {});
   await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS on_hold_by_name VARCHAR(150) DEFAULT NULL`).catch(() => {});
+  await p.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS interest_check_sent_at DATETIME DEFAULT NULL`).catch(() => {});
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS ticket_messages (
@@ -427,6 +428,35 @@ async function getMessages(ticketId) {
   return query('SELECT * FROM ticket_messages WHERE ticket_id = :ticketId ORDER BY created_at ASC', { ticketId });
 }
 
+// Finds open tickets in the given category that have gone stale: created
+// before staleBefore AND nobody (opener or staff) has written anything in
+// them since staleBefore either — a ticket with recent back-and-forth is a
+// "normale Konversation" and should be left alone even if it's been open a
+// long time overall. Cross-guild (no guild_id filter), like voiceSupport's
+// getAllConfigs(), since the scheduler checks all guilds at once.
+// interest_check_sent_at IS NULL guards against asking twice.
+async function getStaleOpenTicketsByCategory(category, staleBefore) {
+  return query(`
+    SELECT * FROM tickets t
+    WHERE t.status = 'open' AND t.category = :category AND t.interest_check_sent_at IS NULL
+      AND t.created_at <= :staleBefore
+      AND NOT EXISTS (
+        SELECT 1 FROM ticket_messages m WHERE m.ticket_id = t.id AND m.created_at > :staleBefore
+      )
+  `, { category, staleBefore });
+}
+
+async function markInterestCheckSent(ticketId) {
+  await query('UPDATE tickets SET interest_check_sent_at = CURRENT_TIMESTAMP WHERE id = :ticketId', { ticketId });
+}
+
+// Clears the "already asked" flag once the ticket is active again, so a
+// ticket that goes stale a second time after answering can still trigger a
+// future interest check instead of being permanently exempt.
+async function clearInterestCheckSent(ticketId) {
+  await query('UPDATE tickets SET interest_check_sent_at = NULL WHERE id = :ticketId', { ticketId });
+}
+
 // ── Note helpers ──────────────────────────────────────────────────────────────
 async function addNote(ticketId, userId, username, content) {
   await query(
@@ -474,6 +504,9 @@ module.exports = {
   getAvgResolutionMinutes,
   addMessage,
   getMessages,
+  getStaleOpenTicketsByCategory,
+  markInterestCheckSent,
+  clearInterestCheckSent,
   addNote,
   getNotes,
 };

@@ -23,5 +23,12 @@ module.exports = {
       content:     message.content || '',
       attachments: JSON.stringify(attachments),
     });
+
+    // Someone writing again after the "Besteht noch Interesse?" nudge
+    // (scheduler.js) means the ticket is active again — clear the flag so
+    // it can trigger that check again if it goes stale once more later.
+    if (ticket.interest_check_sent_at) {
+      await db.clearInterestCheckSent(ticket.id);
+    }
   },
 };
