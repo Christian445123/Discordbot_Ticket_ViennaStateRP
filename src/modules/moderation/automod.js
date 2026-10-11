@@ -68,6 +68,32 @@ function findBannedWord(content, wordsJson) {
 }
 
 const HONEYPOT_TIMEOUT_MINUTES = 10 * 24 * 60; // 10 Tage
+const AUTOMOD_ESCALATION_TIMEOUT_MINUTES = 24 * 60; // 1 Tag
+
+// Own fixed, staged ladder for automod-triggered violations (staff
+// mentions, banned words, invites, mass mentions, spam — not honeypot,
+// which already has its own separate ladder above), same idea as
+// handleHoneypot: 1x Verwarnung, 2x Timeout, 3x Kick, 4x+ Bann, counted via
+// automod_violation_count so it persists across leaves/rejoins and doesn't
+// depend on the admin having configured moderation_escalation_rules.
+async function applyAutomodEscalation(message, violation) {
+  const reason = `Automod: ${violation}`;
+  const count  = await db.incrementAutomodViolationCount(message.guild.id, message.author.id, message.author.tag);
+
+  try {
+    if (count === 1) {
+      await actions.warn(message.client, message.guild, message.author, reason, null, 'Automod');
+    } else if (count === 2) {
+      await actions.timeout(message.client, message.guild, message.author, AUTOMOD_ESCALATION_TIMEOUT_MINUTES, reason, null, 'Automod');
+    } else if (count === 3) {
+      await actions.kick(message.client, message.guild, message.author, reason, null, 'Automod');
+    } else {
+      await actions.ban(message.client, message.guild, message.author, reason, null, 'Automod');
+    }
+  } catch (err) {
+    logger.error('Moderation: Automod-Eskalation fehlgeschlagen:', err.message);
+  }
+}
 
 // Any message in the configured honeypot channel is treated as a bot/
 // self-bot giveaway — a real human has no reason to ever post there (it's
@@ -105,10 +131,9 @@ async function handleHoneypot(message, cfg) {
 
 // Checks @everyone/@here, staff mentions, banned words, invite links, mass
 // mentions and spam in that order (first hit wins) — deletes the message
-// and issues an automatic warning, which feeds straight into the same
-// escalation ladder as a manual /mod warn (see actions.js's
-// checkEscalation). Skipped entirely for exempt members (see isExempt
-// above).
+// and runs the staged automod escalation ladder (see
+// applyAutomodEscalation above). Skipped entirely for exempt members (see
+// isExempt above).
 async function handleAutomod(message, cfg) {
   if (isExempt(message.member, cfg)) return;
 
@@ -151,11 +176,7 @@ async function handleAutomod(message, cfg) {
   if (!violation) return;
 
   await message.delete().catch(() => {});
-  try {
-    await actions.warn(message.client, message.guild, message.author, `Automod: ${violation}`, null, 'Automod');
-  } catch (err) {
-    logger.error('Moderation: Automod-Verwarnung fehlgeschlagen:', err.message);
-  }
+  await applyAutomodEscalation(message, violation);
 }
 
 async function handleMessage(message) {

@@ -85,10 +85,15 @@ async function initSchema(p) {
       message_count    INT DEFAULT 0,
       last_message_at  DATETIME NULL,
       honeypot_count   INT DEFAULT 0,
+      automod_violation_count INT DEFAULT 0,
       PRIMARY KEY (guild_id, user_id)
     ) ENGINE=InnoDB
   `);
   await p.query(`ALTER TABLE moderation_activity ADD COLUMN IF NOT EXISTS honeypot_count INT DEFAULT 0`).catch(() => {});
+  // Same "persists across leave/rejoin" idea as honeypot_count — the automod
+  // escalation ladder (Verwarnung → Timeout → Kick → Bann, see automod.js)
+  // must not reset just because someone got kicked and came back.
+  await p.query(`ALTER TABLE moderation_activity ADD COLUMN IF NOT EXISTS automod_violation_count INT DEFAULT 0`).catch(() => {});
 }
 
 async function ensureGuild(guildId) {
@@ -252,6 +257,22 @@ async function incrementHoneypotCount(guildId, userId, username) {
   return rows[0].honeypot_count;
 }
 
+// Returns the new count after incrementing, so the caller can decide which
+// automod escalation stage (Verwarnung/Timeout/Kick/Bann) applies this time
+// — same pattern as incrementHoneypotCount, just its own separate ladder.
+async function incrementAutomodViolationCount(guildId, userId, username) {
+  await query(`
+    INSERT INTO moderation_activity (guild_id, user_id, username, automod_violation_count)
+    VALUES (:guildId, :userId, :username, 1)
+    ON DUPLICATE KEY UPDATE automod_violation_count = automod_violation_count + 1, username = :username
+  `, { guildId, userId, username });
+  const rows = await query(
+    'SELECT automod_violation_count FROM moderation_activity WHERE guild_id = :guildId AND user_id = :userId',
+    { guildId, userId },
+  );
+  return rows[0].automod_violation_count;
+}
+
 async function getCaseCountsByUser(guildId) {
   return query(`
     SELECT
@@ -271,5 +292,5 @@ module.exports = {
   getActiveWarnCount, getActiveWarnings, revokeWarning,
   getExpiredTempbans, markTempbanProcessed,
   getEscalationRules, getEscalationRuleForThreshold, setEscalationRules,
-  recordActivity, getActivity, incrementHoneypotCount, getCaseCountsByUser,
+  recordActivity, getActivity, incrementHoneypotCount, incrementAutomodViolationCount, getCaseCountsByUser,
 };
